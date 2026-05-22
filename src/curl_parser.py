@@ -62,9 +62,12 @@ class CurlResult:
                 part = part.strip()
                 if not part:
                     continue
-                m = re.search(r"""['\"]([^'\"]+):\s*([^'\"]+)['\"]""", part)
+                m = re.search(r"""['\"]([^'\"]+?):\s*([^'\"]+)['\"]""", part)
                 if m:
-                    self.headers[m.group(1).strip()] = m.group(2).strip()
+                    key = m.group(1).strip()
+                    val = m.group(2).strip()
+                    if ":" not in key:
+                        self.headers[key] = val
         if "--data-raw " in line or line.startswith("-d ") or line.startswith("-d'"):
             m = re.search(r"""--data-raw\s+'([^']*)'""", line)
             if not m:

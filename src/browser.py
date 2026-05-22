@@ -195,7 +195,7 @@ class BrowserManager:
             cred = UserCredentials(user_name=user_name)
         cred.user_info["captured_appId"] = cp.get("appId", "")
         cred.user_info["captured_payload"] = cp
-        cred.user_info["captured_headers"] = {k: v for k, v in ch.items() if k.lower() not in ("cookie", "host", "content-length", "connection")}
+        cred.user_info["captured_headers"] = {k: v for k, v in ch.items() if k.lower() not in ("cookie", "host", "content-length", "connection", "https") and ":" not in k}
         cred.user_info["captured_cookies"] = cc
         if cc.get("wr_skey"):
             cred.wr_skey = cc["wr_skey"]

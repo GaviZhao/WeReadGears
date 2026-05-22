@@ -107,8 +107,11 @@ class ApiReader:
             self.headers = dict(self.DEFAULT_HEADERS)
             for k, v in ch.items():
                 kl = k.lower()
-                if kl not in ("cookie", "host", "content-length", "connection", "sec-", "baggage", "sentry"):
-                    self.headers[k] = v
+                if ":" in k or kl in ("https", "cookie", "host", "content-length", "connection", "baggage", "sentry"):
+                    continue
+                if kl.startswith("sec-"):
+                    continue
+                self.headers[k] = v
         else:
             self.headers = dict(self.DEFAULT_HEADERS)
 
