@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>WeReadGears</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚙</text></svg>">
+    <style>
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a0f;min-height:100vh;color:#f8fafc;line-height:1.6}
+        .container{max-width:1400px;margin:0 auto;padding:40px 20px}
+        .header{text-align:center;margin-bottom:40px}
+        .header h1{font-size:2.8rem;font-weight:700;background:linear-gradient(135deg,#6366f1,#06b6d4,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:8px;letter-spacing:-1px}
+        .header p{color:#94a3b8;font-size:1.05rem}
+        .row{display:flex;gap:24px;flex-wrap:wrap}
+        .col-main{flex:1;min-width:0}
+        .col-side{width:400px;flex-shrink:0}
+        @media(max-width:1100px){.col-side{width:100%}}
+        .card{background:rgba(18,18,26,0.8);backdrop-filter:blur(20px);border:1px solid rgba(99,102,241,0.15);border-radius:24px;padding:24px;margin-bottom:20px;transition:border-color .3s}
+        .card:hover{border-color:rgba(99,102,241,0.3)}
+        .card-title{font-size:1.1rem;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:10px}
+        .mode-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+        .mode-card{padding:16px;border-radius:12px;border:2px solid rgba(255,255,255,0.1);cursor:pointer;transition:all .3s;text-align:center}
+        .mode-card:hover{border-color:rgba(99,102,241,0.5)}
+        .mode-card.active{border-color:#6366f1;background:rgba(99,102,241,0.1)}
+        .mode-card .mode-name{font-weight:600;margin-bottom:4px}
+        .mode-card .mode-desc{font-size:.75rem;color:#64748b}
+        .status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}
+        .status-item{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.05);border-radius:14px;padding:16px;text-align:center}
+        .status-item .label{color:#64748b;font-size:.7rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+        .status-item .value{font-size:.95rem;font-weight:600}
+        .status-item .value.success{color:#10b981}
+        .status-item .value.error{color:#ef4444}
+        .status-item .value.info{color:#06b6d4}
+        .status-btn-group{display:flex;gap:8px;margin-top:16px}
+        .status-btn{flex:1;padding:12px 16px;border:none;border-radius:12px;font-size:.85rem;font-weight:600;cursor:pointer;transition:all .3s;text-align:center;min-width:0}
+        .status-btn-primary{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff}
+        .status-btn-primary:hover{transform:translateY(-2px);box-shadow:0 4px 20px rgba(99,102,241,.3)}
+        .status-btn-secondary{background:rgba(255,255,255,.05);color:#f8fafc;border:1px solid rgba(255,255,255,.1)}
+        .status-btn-secondary:hover{background:rgba(255,255,255,.1)}
+        .status-btn-danger{background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.2)}
+        .status-btn-danger:hover{background:rgba(239,68,68,.2)}
+        .btn{padding:12px 22px;border:none;border-radius:12px;font-size:.85rem;font-weight:600;cursor:pointer;transition:all .3s;display:inline-flex;align-items:center;gap:6px}
+        .btn:disabled{opacity:.5;cursor:not-allowed;transform:none!important}
+        .btn-primary{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;box-shadow:0 4px 20px rgba(99,102,241,.3)}
+        .btn-primary:hover:not(:disabled){transform:translateY(-2px)}
+        .btn-success{background:linear-gradient(135deg,#10b981,#059669);color:#fff}
+        .btn-success:hover:not(:disabled){transform:translateY(-2px)}
+        .btn-secondary{background:rgba(255,255,255,.05);color:#f8fafc;border:1px solid rgba(255,255,255,.1)}
+        .btn-secondary:hover:not(:disabled){background:rgba(255,255,255,.1)}
+        .btn-danger{background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.2)}
+        .btn-danger:hover:not(:disabled){background:rgba(239,68,68,.2)}
+        .btn-sm{padding:6px 14px;font-size:.75rem;border-radius:8px}
+        .btn-group{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+        .form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}
+        .form-group{margin-bottom:14px}
+        .form-group label{display:block;color:#94a3b8;font-size:.8rem;font-weight:500;margin-bottom:8px}
+        .form-group input[type="text"],.form-group input[type="number"],.form-group input[type="time"],.form-group input[type="password"]{width:100%;padding:12px 16px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);border-radius:10px;font-size:.9rem;color:#f8fafc;color-scheme:dark;transition:border-color .3s,box-shadow .3s}
+        .form-group input:focus{outline:none;border-color:#6366f1;background:rgba(99,102,241,.05);box-shadow:0 0 0 4px rgba(99,102,241,.1)}
+        .toggle{position:relative;width:48px;height:26px;display:inline-block}
+        .toggle input{display:none}
+        .toggle-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,.1);border-radius:26px;transition:.3s}
+        .toggle-slider::before{position:absolute;content:"";height:20px;width:20px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s}
+        .toggle input:checked+.toggle-slider{background:linear-gradient(135deg,#6366f1,#8b5cf6)}
+        .toggle input:checked+.toggle-slider::before{transform:translateX(22px)}
+        .save-btn{padding:16px 44px;background:linear-gradient(135deg,#6366f1,#06b6d4);color:#fff;border:none;border-radius:14px;font-size:.95rem;font-weight:600;cursor:pointer;box-shadow:0 4px 25px rgba(99,102,241,.35);transition:all .3s}
+        .save-btn:hover:not(:disabled){transform:translateY(-3px)}
+        .save-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+        .preview-wrap{position:relative;overflow:hidden;border-radius:12px;background:#1a1a2e;aspect-ratio:16/10;border:1px solid rgba(255,255,255,.05);user-select:none}
+        .preview-wrap img{display:block;width:100%;height:100%;object-fit:contain;transform-origin:0 0;image-rendering:auto;pointer-events:auto}
+        .preview-controls{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+        .preview-controls .zoom-level{color:#94a3b8;font-size:.8rem;min-width:45px;text-align:center}
+        .zoom-btn{width:32px;height:32px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#f8fafc;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1rem;transition:all .2s}
+        .zoom-btn:hover{background:rgba(99,102,241,.2);border-color:#6366f1}
+        .progress-bar{width:100%;height:6px;background:rgba(255,255,255,.05);border-radius:3px;overflow:hidden;margin:12px 0}
+        .progress-bar-fill{height:100%;background:linear-gradient(90deg,#6366f1,#06b6d4);border-radius:3px;transition:width 1s}
+        .reading-info{display:flex;justify-content:space-between;color:#94a3b8;font-size:.8rem;gap:12px;flex-wrap:wrap}
+        .book-item{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:20px;margin-bottom:12px}
+        .book-item .book-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+        .book-item .book-title{font-weight:600;color:#06b6d4;font-size:.9rem}
+        .ch-row{display:flex;gap:8px;margin-top:8px;align-items:center}
+        .ch-row input{flex:1;padding:10px 14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:10px;font-size:.85rem;color:#f8fafc}
+        .ch-row input[type=number]{width:80px;flex:none}
+        .ch-del-btn{width:32px;height:32px;background:rgba(239,68,68,.1);color:#ef4444;border:none;border-radius:8px;cursor:pointer;font-size:1rem;transition:background .2s}
+        .ch-del-btn:hover{background:rgba(239,68,68,.2)}
+        .add-btn{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;padding:10px 18px;border-radius:10px;cursor:pointer;font-size:.85rem;font-weight:500;margin-top:8px;transition:transform .2s}
+        .add-btn:hover{transform:translateY(-1px)}
+        .del-btn{background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.2);padding:5px 10px;border-radius:8px;cursor:pointer;font-size:.75rem;transition:background .2s}
+        .del-btn:hover{background:rgba(239,68,68,.2)}
+        .modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);backdrop-filter:blur(8px);z-index:1000;justify-content:center;align-items:center}
+        .modal-overlay.active{display:flex}
+        .modal-box{background:rgba(18,18,26,.95);border:1px solid rgba(99,102,241,.2);border-radius:24px;padding:36px;max-width:420px;width:90%;text-align:center}
+        .modal-box h2{font-size:1.4rem;margin-bottom:8px}
+        .modal-box p{color:#94a3b8;margin-bottom:20px;font-size:.9rem}
+        .qr-wrap{background:#fff;border-radius:16px;padding:12px;margin:0 auto 20px;max-width:300px}
+        .qr-wrap img{width:100%;display:block;border-radius:8px}
+        .login-hint{background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.15);border-radius:10px;padding:10px 14px;color:#94a3b8;font-size:.82rem;margin-bottom:16px;text-align:left;line-height:1.7}
+        .login-st{font-size:.9rem;font-weight:500}
+        .login-st.info{color:#06b6d4}.login-st.success{color:#10b981}.login-st.error{color:#ef4444}
+        .spinner{width:36px;height:36px;border:3px solid rgba(99,102,241,.2);border-top-color:#6366f1;border-radius:50%;animation:spin .8s linear infinite;margin:40px auto}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .ch-divider{border-top:1px solid rgba(255,255,255,.06);margin:16px 0}
+        .user-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:16px;margin-bottom:12px;transition:border-color .3s}
+        .user-card:hover{border-color:rgba(99,102,241,.2)}
+        .user-card .user-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+        .user-card .user-name{font-weight:600;color:#06b6d4}
+        .user-name-input{background:transparent;border:none;border-bottom:1px solid rgba(99,102,241,.3);color:#06b6d4;font-weight:600;font-size:.9rem;outline:none;width:auto;min-width:80px;padding:2px 4px;transition:border-color .3s,background .3s}
+        .user-name-input:focus{border-bottom-color:#6366f1;background:rgba(99,102,241,.05)}
+        .user-card .user-status{font-size:.75rem;padding:4px 8px;border-radius:4px}
+        .user-card .user-status.logged-in{background:rgba(16,185,129,.1);color:#10b981}
+        .user-card .user-status.not-logged{background:rgba(239,68,68,.1);color:#ef4444}
+        .user-card .user-actions{display:flex;gap:6px;margin-top:8px}
+        .user-card .user-info-text{font-size:.72rem;color:#64748b;margin-top:4px}
+        .history-item{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:14px;margin-bottom:8px;transition:border-color .2s}
+        .history-item:hover{border-color:rgba(255,255,255,.1)}
+        .history-item .history-time{color:#64748b;font-size:.75rem;margin-bottom:4px}
+        .history-item .history-content{font-size:.85rem}
+        .history-item .history-status{float:right}
+        .history-item .history-status.success{color:#10b981}
+        .history-item .history-status.failed{color:#ef4444}
+        .stat-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.05);border-radius:14px;padding:20px;text-align:center;transition:border-color .3s}
+        .stat-card:hover{border-color:rgba(6,182,212,.2)}
+        .stat-card .stat-value{font-size:2rem;font-weight:700;color:#06b6d4}
+        .stat-card .stat-label{color:#64748b;font-size:.75rem;margin-top:4px}
+        .stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+        .tab-nav{display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid rgba(255,255,255,.1);padding-bottom:8px}
+        .tab-btn{padding:8px 16px;background:transparent;border:none;color:#64748b;cursor:pointer;font-size:.9rem;border-radius:8px;transition:all .2s}
+        .tab-btn:hover{background:rgba(255,255,255,.05)}
+        .tab-btn.active{background:rgba(99,102,241,.2);color:#6366f1}
+        .tab-content{display:none}
+        .tab-content.active{display:block}
+        .empty-state{text-align:center;padding:30px 20px;color:#64748b}
+        .empty-state .empty-icon{font-size:2rem;margin-bottom:8px;opacity:.5}
+        .empty-state .empty-text{font-size:.85rem}
+        .notify-group{margin-bottom:16px}
+        .notify-group summary{cursor:pointer;font-size:.9rem;font-weight:600;color:#94a3b8;padding:8px 0;user-select:none;list-style:none;display:flex;align-items:center;gap:8px}
+        .notify-group summary::before{content:"";display:inline-block;width:0;height:0;border:5px solid transparent;border-left:7px solid #64748b;transition:transform .2s}
+        .notify-group[open] summary::before{transform:rotate(90deg)}
+        .notify-group summary:hover{color:#f8fafc}
+        .footer{text-align:center;padding:30px 0 10px;color:#475569;font-size:.75rem}
+        .footer a{color:#6366f1;text-decoration:none}
+        .footer a:hover{text-decoration:underline}
+        /* Toast */
+        .toast-container{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+        .toast{padding:14px 20px;border-radius:12px;font-size:.85rem;font-weight:500;backdrop-filter:blur(16px);pointer-events:auto;animation:toastIn .3s ease;max-width:380px;display:flex;align-items:center;gap:10px;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+        .toast.hiding{animation:toastOut .3s ease forwards}
+        .toast.success{background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:#10b981}
+        .toast.error{background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#ef4444}
+        .toast.info{background:rgba(6,182,212,.15);border:1px solid rgba(6,182,212,.3);color:#06b6d4}
+        .toast.warning{background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.3);color:#f59e0b}
+        @keyframes toastIn{from{opacity:0;transform:translateX(100px)}to{opacity:1;transform:translateX(0)}}
+        @keyframes toastOut{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(100px)}}
+        /* Confirm dialog */
+        .confirm-overlay{display:flex;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.8);backdrop-filter:blur(6px);z-index:10000;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+        .confirm-box{background:rgba(18,18,26,.98);border:1px solid rgba(99,102,241,.25);border-radius:20px;padding:30px;max-width:380px;width:90%;text-align:center;animation:scaleIn .2s ease}
+        .confirm-box p{color:#e2e8f0;font-size:.95rem;margin-bottom:24px;line-height:1.6}
+        .confirm-actions{display:flex;gap:12px;justify-content:center}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        @keyframes scaleIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+        @media(max-width:768px){
+            .container{padding:20px 12px}
+            .header h1{font-size:2rem}
+            .card{padding:18px 14px;border-radius:18px}
+            .col-side{width:100%}
+            .mode-cards{grid-template-columns:1fr}
+            .stat-row{grid-template-columns:repeat(3,1fr)}
+            .toast-container{top:10px;right:10px;left:10px}
+            .toast{max-width:100%}
+            .form-row{grid-template-columns:1fr}
+        }
+        @media(max-width:480px){
+            .btn-group{flex-direction:column}
+            .btn-group .btn{width:100%;justify-content:center}
+        }
+        ::-webkit-scrollbar{width:6px}
+        ::-webkit-scrollbar-track{background:rgba(255,255,255,.03);border-radius:3px}
+        ::-webkit-scrollbar-thumb{background:rgba(99,102,241,.3);border-radius:3px}
+        ::-webkit-scrollbar-thumb:hover{background:rgba(99,102,241,.5)}
+    </style>
+</head>
+<body>
+<div class="toast-container" id="toastContainer"></div>
+
+<div class="container">
+    <div class="header">
+        <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:12px">
+            <div style="width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,#6366f1,#06b6d4);display:flex;align-items:center;justify-content:center;font-size:28px;box-shadow:0 8px 32px rgba(99,102,241,.3)">⚙</div>
+            <div style="text-align:left">
+                <h1 style="font-size:2rem;font-weight:700;background:linear-gradient(135deg,#6366f1,#06b6d4,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin:0;letter-spacing:-.5px">WeReadGears</h1>
+                <p style="color:#64748b;font-size:.85rem;margin:2px 0 0 0">微信读书 · 自动阅读</p>
+            </div>
+        </div>
+    </div>
+    <form id="configForm">
+    <div class="row">
+        <div class="col-main">
+            <!-- 阅读模式 -->
+            <div class="card">
+                <div class="card-title">阅读模式</div>
+                <div class="mode-cards">
+                    <div class="mode-card active" onclick="setMode('api')" id="modeApi">
+                        <div class="mode-name">API 模式</div>
+                        <div class="mode-desc">高速请求，自动签名（默认）</div>
+                    </div>
+                    <div class="mode-card" onclick="setMode('browser')" id="modeBrowser">
+                        <div class="mode-name">模拟模式</div>
+                        <div class="mode-desc">Playwright 视觉模拟，备用方案</div>
+                    </div>
+                </div>
+                <!-- 浏览器预览 -->
+                <div id="browserPreview" style="display:none">
+                    <div class="preview-wrap" id="previewWrap">
+                        <img id="previewImg" src="" alt="browser preview" style="transform:scale(1) translate(0,0)">
+                    </div>
+                    <div class="preview-controls">
+                        <button class="zoom-btn" type="button" onclick="adjustZoom(-.1)">-</button>
+                        <span class="zoom-level" id="zoomLabel">100%</span>
+                        <button class="zoom-btn" type="button" onclick="adjustZoom(.1)">+</button>
+                        <button class="zoom-btn" type="button" onclick="adjustZoom(0)">&#x21BA;</button>
+                        <input type="text" id="navUrl" value="https://weread.qq.com/" placeholder="URL" style="flex:1;min-width:120px;padding:8px 12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);border-radius:8px;font-size:.82rem;color:#f8fafc">
+                        <button class="btn btn-secondary" type="button" style="padding:8px 16px;font-size:.8rem" onclick="navigateBrowser()">跳转</button>
+                    </div>
+                </div>
+                <!-- 阅读进度 -->
+                <div id="readingProgress" style="margin-top:16px">
+                    <div class="progress-bar"><div class="progress-bar-fill" id="progressFill" style="width:0%"></div></div>
+                    <div class="reading-info" style="margin-bottom:8px">
+                        <span id="progressStatus">空闲</span>
+                        <span id="progressBook"></span>
+                    </div>
+                    <div class="reading-info" style="background:rgba(255,255,255,.03);border-radius:10px;padding:12px;margin-bottom:8px">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+                            <span id="progressTime"></span>
+                            <span id="progressTimeRight"></span>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;color:#64748b;font-size:.75rem">
+                            <span id="progressStartTime"></span>
+                            <span id="progressEndTime"></span>
+                        </div>
+                    </div>
+                    <div id="logConsole" style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:10px;max-height:200px;overflow-y:auto;font-family:monospace;font-size:0.75rem;line-height:1.6;color:#94a3b8">
+                        <div style="color:#64748b">等待日志...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 阅读设置 -->
+            <div class="card" id="readingConfig">
+                <div class="card-title">阅读设置</div>
+                <div class="form-row">
+                    <div class="form-group"><label>目标时长(分钟)</label><input type="text" name="target_duration" value="{{ reading.target_duration }}"></div>
+                    <div class="form-group"><label>阅读间隔(秒)</label><input type="text" name="reading_interval" value="{{ reading.reading_interval }}"></div>
+                </div>
+                <div class="form-group">
+                    <label>阅读模式</label>
+                    <div style="display:flex;gap:20px;flex-wrap:wrap;">
+                        <label style="display:flex;align-items:center;gap:8px;color:#94a3b8;font-size:.85rem;cursor:pointer"><input type="radio" name="reading_mode" value="smart_random" {{ 'checked' if reading.mode == 'smart_random' else '' }} style="accent-color:#6366f1"> 智能随机</label>
+                        <label style="display:flex;align-items:center;gap:8px;color:#94a3b8;font-size:.85rem;cursor:pointer"><input type="radio" name="reading_mode" value="sequential" {{ 'checked' if reading.mode == 'sequential' else '' }} style="accent-color:#6366f1"> 顺序阅读</label>
+                        <label style="display:flex;align-items:center;gap:8px;color:#94a3b8;font-size:.85rem;cursor:pointer"><input type="radio" name="reading_mode" value="pure_random" {{ 'checked' if reading.mode == 'pure_random' else '' }} style="accent-color:#6366f1"> 纯随机</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 书籍配置 -->
+            <div class="card">
+                <div class="card-title">书籍配置</div>
+                <p style="color:#64748b;font-size:.85rem;margin-bottom:16px">不配置则随机浏览书架</p>
+                <div id="bookList"></div>
+                <button type="button" class="add-btn" onclick="addBook()">+ 添加书籍</button>
+                <input type="hidden" name="books_json" id="booksJson" value="[]">
+            </div>
+
+            <!-- 定时与守护进程 -->
+            <div class="card">
+                <div class="card-title">定时与守护进程</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>启用定时阅读</label>
+                        <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="schedule_enabled" {{ 'checked' if schedule.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                    </div>
+                    <div class="form-group">
+                        <label>启用守护进程</label>
+                        <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="daemon_enabled" {{ 'checked' if daemon.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                    </div>
+                    <div class="form-group"><label>时区</label><input type="text" value="{{ schedule.timezone }}" disabled></div>
+                </div>
+                <div class="form-group">
+                    <label>阅读时间</label>
+                    <div id="timeSlots" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
+                    <button type="button" class="add-btn" onclick="addTime()" style="padding:8px 16px;font-size:.8rem">+ 添加时间</button>
+                    <input type="hidden" name="schedule_times" id="scheduleTimes">
+                </div>
+                <div class="form-row">
+                    <div class="form-group"><label>守护间隔(分钟)</label><input type="text" name="daemon_session_interval" value="{{ daemon.session_interval }}"></div>
+                    <div class="form-group"><label>每日最大会话</label><input type="number" name="daemon_max_daily" value="{{ daemon.max_daily_sessions }}"></div>
+                </div>
+            </div>
+
+            <!-- 网络设置 -->
+            <div class="card">
+                <div class="card-title">网络设置</div>
+                <div class="form-row">
+                    <div class="form-group"><label>超时(秒)</label><input type="number" name="network_timeout" value="{{ network.timeout }}"></div>
+                    <div class="form-group"><label>重试次数</label><input type="number" name="network_retry_times" value="{{ network.retry_times }}"></div>
+                    <div class="form-group"><label>重试延迟</label><input type="text" name="network_retry_delay" value="{{ network.retry_delay }}"></div>
+                    <div class="form-group"><label>速率限制(次/分)</label><input type="number" name="network_rate_limit" value="{{ network.rate_limit }}"></div>
+                </div>
+            </div>
+
+            <!-- 通知设置 -->
+            <div class="card">
+                <div class="card-title">通知设置</div>
+                <div class="form-group">
+                    <label>通知总开关</label>
+                    <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="notification_enabled" {{ 'checked' if notification.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                </div>
+                <div class="form-group">
+                    <label>通知模式</label>
+                    <div style="display:flex;gap:20px;flex-wrap:wrap;">
+                        <label style="display:flex;align-items:center;gap:8px;color:#94a3b8;font-size:.85rem;cursor:pointer"><input type="radio" name="notification_only_on_failure" value="false" {{ 'checked' if not notification.only_on_failure else '' }} style="accent-color:#6366f1"> 所有事件</label>
+                        <label style="display:flex;align-items:center;gap:8px;color:#94a3b8;font-size:.85rem;cursor:pointer"><input type="radio" name="notification_only_on_failure" value="true" {{ 'checked' if notification.only_on_failure else '' }} style="accent-color:#6366f1"> 仅失败</label>
+                    </div>
+                </div>
+                <div class="ch-divider"></div>
+
+                <!-- 国内推送 -->
+                <details class="notify-group" open>
+                    <summary>国内推送</summary>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Bark</label>
+                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="bark_enabled" {{ 'checked' if notification.bark.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                        </div>
+                        <div class="form-group"><label>Server</label><input type="text" name="bark_server" value="{{ notification.bark.server }}"></div>
+                        <div class="form-group"><label>Device Key</label><input type="text" name="bark_device_key" value="{{ notification.bark.device_key }}"></div>
+                    </div>
+                    <div class="ch-divider"></div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>PushPlus</label>
+                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="pushplus_enabled" {{ 'checked' if notification.pushplus.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                        </div>
+                        <div class="form-group" style="flex:2"><label>Token</label><input type="text" name="pushplus_token" value="{{ notification.pushplus.token }}"></div>
+                    </div>
+                    <div class="ch-divider"></div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Server酱</label>
+                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="serverchan3_enabled" {{ 'checked' if notification.serverchan3.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                        </div>
+                        <div class="form-group"><label>UID</label><input type="text" name="serverchan3_uid" value="{{ notification.serverchan3.uid }}"></div>
+                        <div class="form-group"><label>SendKey</label><input type="text" name="serverchan3_sendkey" value="{{ notification.serverchan3.sendkey }}"></div>
+                    </div>
+                    <div class="ch-divider"></div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>WxPusher</label>
+                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="wxpusher_enabled" {{ 'checked' if notification.wxpusher.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                        </div>
+                        <div class="form-group" style="flex:2"><label>SPT</label><input type="text" name="wxpusher_spt" value="{{ notification.wxpusher.spt }}"></div>
+                    </div>
+                    <div class="ch-divider"></div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>PushDeer</label>
+                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="pushdeer_enabled" {{ 'checked' if notification.pushdeer.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                        </div>
+                        <div class="form-group" style="flex:2"><label>PushKey</label><input type="text" name="pushdeer_pushkey" value="{{ notification.pushdeer.pushkey }}"></div>
+                    </div>
+                </details>
+
+                <!-- 即时通讯 -->
+                <details class="notify-group">
+                    <summary>即时通讯机器人</summary>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Telegram</label>
+                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="telegram_enabled" {{ 'checked' if notification.telegram.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                        </div>
+                        <div class="form-group"><label>Bot Token</label><input type="text" name="telegram_bot_token" value="{{ notification.telegram.bot_token }}"></div>
+                        <div class="form-group"><label>Chat ID</label><input type="text" name="telegram_chat_id" value="{{ notification.telegram.chat_id }}"></div>
+                    </div>
+                    <div class="ch-divider"></div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>飞书</label>
+                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="feishu_enabled" {{ 'checked' if notification.feishu.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                        </div>
+                        <div class="form-group"><label>Webhook URL</label><input type="text" name="feishu_webhook_url" value="{{ notification.feishu.webhook_url }}"></div>
+                        <div class="form-group"><label>消息类型</label><input type="text" name="feishu_msg_type" value="{{ notification.feishu.msg_type }}" placeholder="text"></div>
+                    </div>
+                    <div class="ch-divider"></div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>企业微信</label>
+                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="wework_enabled" {{ 'checked' if notification.wework.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                        </div>
+                        <div class="form-group"><label>Webhook URL</label><input type="text" name="wework_webhook_url" value="{{ notification.wework.webhook_url }}"></div>
+                        <div class="form-group"><label>消息类型</label><input type="text" name="wework_msg_type" value="{{ notification.wework.msg_type }}" placeholder="text"></div>
+                    </div>
+                    <div class="ch-divider"></div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>钉钉</label>
+                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="dingtalk_enabled" {{ 'checked' if notification.dingtalk.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                        </div>
+                        <div class="form-group"><label>Webhook URL</label><input type="text" name="dingtalk_webhook_url" value="{{ notification.dingtalk.webhook_url }}"></div>
+                        <div class="form-group"><label>消息类型</label><input type="text" name="dingtalk_msg_type" value="{{ notification.dingtalk.msg_type }}" placeholder="text"></div>
+                    </div>
+                </details>
+
+                <!-- 通用推送 -->
+                <details class="notify-group">
+                    <summary>通用推送</summary>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Ntfy</label>
+                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="ntfy_enabled" {{ 'checked' if notification.ntfy.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                        </div>
+                        <div class="form-group"><label>Server</label><input type="text" name="ntfy_server" value="{{ notification.ntfy.server }}"></div>
+                        <div class="form-group"><label>Topic</label><input type="text" name="ntfy_topic" value="{{ notification.ntfy.topic }}"></div>
+                    </div>
+                    <div class="ch-divider"></div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Gotify</label>
+                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="gotify_enabled" {{ 'checked' if notification.gotify.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                        </div>
+                        <div class="form-group"><label>Server</label><input type="text" name="gotify_server" value="{{ notification.gotify.server }}"></div>
+                        <div class="form-group"><label>Token</label><input type="text" name="gotify_token" value="{{ notification.gotify.token }}"></div>
+                        <div class="form-group"><label>Priority</label><input type="number" name="gotify_priority" value="{{ notification.gotify.priority }}"></div>
+                    </div>
+                </details>
+
+                <div class="btn-group" style="margin-top:16px">
+                    <button type="button" class="btn btn-secondary" id="btnTestNotify" onclick="testNotification()">测试推送</button>
+                </div>
+            </div>
+
+            <div style="text-align:center;margin:32px 0"><button type="submit" class="save-btn" id="btnSave">保存配置</button></div>
+        </div>
+
+        <!-- 侧栏 -->
+        <div class="col-side">
+            <!-- 状态 -->
+            <div class="card">
+                <div class="card-title">状态</div>
+                <div class="status-grid" style="grid-template-columns:1fr 1fr">
+                    <div class="status-item"><div class="label">进程</div><div class="value success">正常</div></div>
+                    <div class="status-item"><div class="label">登录</div><div class="value {{ 'success' if cookies_valid else 'error' }}" id="loginStatus">{{ '已登录' if cookies_valid else '未登录' }}</div></div>
+                </div>
+                <div class="status-btn-group">
+                    <button type="button" class="status-btn status-btn-primary" id="btnRead" onclick="triggerReading()">立即阅读</button>
+                    <button type="button" class="status-btn status-btn-secondary" id="btnCurl" onclick="captureCurl()">获取CURL</button>
+                    <button type="button" class="status-btn status-btn-secondary" id="btnLogin" onclick="openLoginModal()">登录</button>
+                    <button type="button" class="status-btn status-btn-danger" id="btnLogout" onclick="doLogout()" style="display:none">退出</button>
+                </div>
+            </div>
+
+            <!-- 统计 -->
+            <div class="card">
+                <div class="card-title">统计</div>
+                <div class="stat-row">
+                    <div class="stat-card"><div class="stat-value" id="statToday">{{ "%.1f"|format(statistics.today.total_minutes) }}</div><div class="stat-label">今日(分钟)</div></div>
+                    <div class="stat-card"><div class="stat-value">{{ statistics.week.sessions }}</div><div class="stat-label">本周(次)</div></div>
+                    <div class="stat-card"><div class="stat-value">{{ statistics.total.sessions }}</div><div class="stat-label">总计(次)</div></div>
+                </div>
+            </div>
+
+            <!-- 用户/历史 -->
+            <div class="card">
+                <div class="tab-nav">
+                    <button type="button" class="tab-btn active" onclick="switchTab(this,'users')">用户</button>
+                    <button type="button" class="tab-btn" onclick="switchTab(this,'history')">历史</button>
+                </div>
+                <div class="tab-content active" id="tabUsers">
+                    <div id="userList"></div>
+                    <button type="button" class="add-btn" onclick="showAddUser()">+ 添加用户</button>
+                </div>
+                <div class="tab-content" id="tabHistory">
+                    <div id="historyList" style="max-height:260px;overflow-y:auto"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    </form>
+</div>
+
+<!-- 登录弹窗 -->
+<div class="modal-overlay" id="loginModal">
+    <div class="modal-box">
+        <h2>扫码登录</h2>
+        <p>打开微信扫一扫</p>
+        <div id="loginLoading"><div class="spinner"></div></div>
+        <div id="loginContent" style="display:none">
+            <div class="qr-wrap"><img id="qrImage" src="" alt="qrcode"></div>
+            <div class="login-hint">微信 -> 扫一扫<br>扫码后自动跳转</div>
+            <div id="loginStatusText" class="login-st info">等待扫码...</div>
+        </div>
+        <div class="btn-group" style="justify-content:center;margin-top:16px">
+            <button type="button" class="btn btn-secondary" onclick="closeLoginModal()">关闭</button>
+            <button type="button" class="btn btn-primary" id="btnRetryLogin" style="display:none" onclick="startQRLogin()">重试</button>
+        </div>
+    </div>
+</div>
+
+<!-- 版本信息 -->
+<div class="footer">WeReadGears · 微信读书自动阅读</div>
+
+<script>
+(function() {
+"use strict";
+
+// === Toast 通知 ===
+function showToast(message, type, duration) {
+    type = type || 'info';
+    duration = duration || 3000;
+    var container = document.getElementById('toastContainer');
+    var toast = document.createElement('div');
+    toast.className = 'toast ' + type;
+    toast.innerHTML = '<span>' + message + '</span>';
+    container.appendChild(toast);
+    setTimeout(function() {
+        toast.classList.add('hiding');
+        setTimeout(function() { toast.remove(); }, 300);
+    }, duration);
+}
+window.showToast = showToast;
+
+// === 确认对话框 ===
+function showConfirm(message, onConfirm) {
+    var overlay = document.createElement('div');
+    overlay.className = 'confirm-overlay';
+    overlay.innerHTML = '<div class="confirm-box"><p>' + message + '</p><div class="confirm-actions"><button class="btn btn-secondary" id="confirmCancel">取消</button><button class="btn btn-danger" id="confirmOk">确定</button></div></div>';
+    document.body.appendChild(overlay);
+    overlay.querySelector('#confirmCancel').onclick = function() { overlay.remove(); };
+    overlay.querySelector('#confirmOk').onclick = function() { overlay.remove(); onConfirm(); };
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+}
+
+// === 按钮加载状态 ===
+function withLoading(btn, asyncFn) {
+    var orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width:16px;height:16px;margin:0;border-width:2px;display:inline-block;vertical-align:middle"></span>';
+    return asyncFn().finally(function() { btn.disabled = false; btn.innerHTML = orig; });
+}
+
+// === 状态变量 ===
+var zoom = 1, panX = 0, panY = 0, isDragging = false, dragStartX = 0, dragStartY = 0, panStartX = 0, panStartY = 0;
+var qrPoll = null, scheduleTimes = [], books = [], currentMode = 'api';
+var progressPoll = null, logPoll = null, screenshotPoll = null;
+var simElapsed = 0, simTarget = 0, simLastTime = Date.now(), simRunning = false;
+var previewWrap = document.getElementById('previewWrap');
+var previewImg = document.getElementById('previewImg');
+
+// === 浏览器预览缩放 ===
+function adjustZoom(delta) {
+    if (delta === 0) { zoom = 1; panX = 0; panY = 0; }
+    else { zoom = Math.max(0.2, Math.min(5, zoom + delta)); }
+    previewImg.style.transform = 'scale(' + zoom + ') translate(' + panX + 'px,' + panY + 'px)';
+    document.getElementById('zoomLabel').textContent = Math.round(zoom * 100) + '%';
+}
+window.adjustZoom = adjustZoom;
+
+if (previewWrap) {
+    previewWrap.addEventListener('wheel', function(e) { e.preventDefault(); adjustZoom(e.deltaY < 0 ? 0.1 : -0.1); }, {passive: false});
+    previewWrap.addEventListener('mousedown', function(e) {
+        if (e.button === 1) { e.preventDefault(); isDragging = true; dragStartX = e.clientX; dragStartY = e.clientY; panStartX = panX; panStartY = panY; this.style.cursor = 'grabbing'; }
+    });
+    previewWrap.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+    previewWrap.addEventListener('click', async function(e) {
+        if (e.button !== 0 || isDragging) return;
+        var r = this.getBoundingClientRect();
+        var rx = (e.clientX - r.left) / zoom - panX;
+        var ry = (e.clientY - r.top) / zoom - panY;
+        try { await fetch('/browser/click', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({x: Math.round(rx / r.width * 1920), y: Math.round(ry / r.height * 1080)})}); } catch(e) {}
+    });
+}
+window.addEventListener('mousemove', function(e) { if (!isDragging) return; panX = panStartX + (e.clientX - dragStartX); panY = panStartY + (e.clientY - dragStartY); adjustZoom(0); });
+window.addEventListener('mouseup', function(e) { if (e.button === 1 && isDragging) { isDragging = false; if (previewWrap) previewWrap.style.cursor = 'grab'; } });
+
+// === 截图轮询（仅浏览器模式） ===
+function startScreenshotPoll() {
+    if (screenshotPoll) return;
+    screenshotPoll = setInterval(function() { if (previewImg) previewImg.src = '/browser/screenshot?_=' + Date.now(); }, 3000);
+}
+function stopScreenshotPoll() {
+    if (screenshotPoll) { clearInterval(screenshotPoll); screenshotPoll = null; }
+}
+
+// === 浏览器导航 ===
+function navigateBrowser() {
+    var u = document.getElementById('navUrl').value.trim();
+    if (!u) return;
+    fetch('/browser/navigate', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({url: u})})
+        .finally(function() { setTimeout(function() { if (previewImg) previewImg.src = '/browser/screenshot?_=' + Date.now(); }, 1000); });
+}
+window.navigateBrowser = navigateBrowser;
+
+// === 模式切换 ===
+function setMode(m) {
+    if (m !== currentMode) {
+        var btn = document.getElementById('btnRead');
+        if (btn && btn.textContent.indexOf('停止') >= 0) {
+            fetch('/stop-reading', {method: 'POST'});
+            btn.disabled = false; btn.innerHTML = '立即阅读';
+            if (progressPoll) { clearInterval(progressPoll); progressPoll = null; }
+            if (logPoll) { clearInterval(logPoll); logPoll = null; }
+            simRunning = false;
+        }
+    }
+    currentMode = m;
+    document.getElementById('modeApi').classList.toggle('active', m === 'api');
+    document.getElementById('modeBrowser').classList.toggle('active', m === 'browser');
+    document.getElementById('browserPreview').style.display = m === 'browser' ? 'block' : 'none';
+    document.getElementById('readingConfig').style.display = m === 'browser' ? 'none' : 'block';
+    var rp = document.getElementById('readingProgress');
+    if (rp) rp.style.display = m === 'api' ? 'block' : 'none';
+    if (m === 'browser') { startScreenshotPoll(); } else { stopScreenshotPoll(); }
+}
+window.setMode = setMode;
+
+// === 标签页切换 ===
+var historyInterval = null;
+function switchTab(btn, tab) {
+    document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
+    btn.classList.add('active');
+    document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
+    if (tab === 'history') { loadHistory(); if (!historyInterval) historyInterval = setInterval(loadHistory, 5000); }
+    else if (historyInterval) { clearInterval(historyInterval); historyInterval = null; }
+}
+window.switchTab = switchTab;
+
+// === 时间格式化 ===
+function fmtTime(iso) {
+    if (!iso) return '';
+    var dt = new Date(iso);
+    if (isNaN(dt)) return iso;
+    var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
+    var hour = pad(dt.getHours()), min = pad(dt.getMinutes());
+    var today = new Date();
+    if (dt.toDateString() === today.toDateString()) return '今天 ' + hour + ':' + min;
+    var yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+    if (dt.toDateString() === yesterday.toDateString()) return '昨天 ' + hour + ':' + min;
+    return pad(dt.getMonth() + 1) + '月' + pad(dt.getDate()) + '日 ' + hour + ':' + min;
+}
+function fmtStatus(s) { return s === 'completed' ? '完成' : (s === 'failed' || s === 'error' ? '异常' : s); }
+
+// === 历史记录 ===
+function loadHistory() {
+    fetch('/history?limit=20').then(function(r) { return r.json(); }).then(function(d) {
+        var h = document.getElementById('historyList');
+        var items = d.history || [];
+        if (!items.length) { h.innerHTML = '<div class="empty-state"><div class="empty-icon">&#x1F4C4;</div><div class="empty-text">暂无阅读记录</div></div>'; return; }
+        h.innerHTML = items.map(function(i) {
+            var statusCls = i.final_status === 'completed' ? 'success' : 'failed';
+            var reads = i.total_reads || 0, failed = i.failed_reads || 0;
+            var totalSec = i.total_duration_seconds || 0;
+            var hours = Math.floor(totalSec / 3600), mins = Math.floor((totalSec % 3600) / 60), secs = totalSec % 60;
+            var dur = ''; if (hours > 0) dur += hours + '时'; dur += mins + '分' + secs + '秒';
+            return '<div class="history-item"><div class="history-time">' + fmtTime(i.recorded_at) + '</div><div class="history-content" style="display:flex;justify-content:space-between;align-items:center"><span><span class="history-status ' + statusCls + '">' + fmtStatus(i.final_status) + '</span> <strong>' + (i.user || '?') + '</strong> · ' + dur + '</span><span style="color:#64748b;font-size:0.75rem">' + reads + '次' + (failed ? ' · 失败' + failed + '次' : '') + '</span></div></div>';
+        }).join('');
+    });
+}
+
+// === 用户管理 ===
+async function saveUserName(el) {
+    var oldName = el.dataset.old || '';
+    var newName = el.value.trim();
+    if (!newName || newName === oldName) return;
+    try {
+        var r = await fetch('/users/' + encodeURIComponent(oldName) + '/rename', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({new_name: newName})});
+        var d = await r.json();
+        if (d.status === 'ok') { el.dataset.old = newName; el.style.borderBottomColor = '#10b981'; showToast('已重命名为 ' + newName, 'success'); }
+    } catch(e) {}
+}
+window.saveUserName = saveUserName;
+
+async function loadUsers() {
+    try {
+        var r = await fetch('/users');
+        var d = await r.json();
+        var h = document.getElementById('userList');
+        var users = d.users || [];
+        if (!users.length) { h.innerHTML = '<div class="empty-state"><div class="empty-icon">&#x1F464;</div><div class="empty-text">暂无用户，点击下方添加</div></div>'; return; }
+        h.innerHTML = users.map(function(u) {
+            var name = u.name || '';
+            var displayName = u.display_name || u.real_name || name || 'unknown';
+            var loggedCls = u.logged_in ? 'logged-in' : 'not-logged';
+            var loggedText = u.logged_in ? '已登录' : '未登录';
+            var credInfo = '';
+            if (u.credential_info && u.credential_info.expires_at) {
+                credInfo = '<div class="user-info-text">到期: ' + fmtTime(u.credential_info.expires_at) + '</div>';
+            }
+            return '<div class="user-card">' +
+                '<div class="user-header">' +
+                '<input class="user-name-input" value="' + displayName.replace(/"/g, '&quot;') + '" data-old="' + name.replace(/"/g, '&quot;') + '" onblur="saveUserName(this)" onkeydown="if(event.key===\'Enter\')this.blur()">' +
+                '<span class="user-status ' + loggedCls + '">' + loggedText + '</span>' +
+                '</div>' +
+                credInfo +
+                (users.length > 1 ? '<div class="user-actions"><button type="button" class="btn btn-danger btn-sm" onclick="deleteUser(\'' + name.replace(/'/g, "\\'") + '\')">删除</button></div>' : '') +
+                '</div></div>';
+        }).join('');
+    } catch(e) {}
+}
+
+function loginUser(name) {
+    fetch('/users/' + encodeURIComponent(name) + '/login', {method: 'POST'}).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.qr_image) showToast('请在浏览器中查看二维码', 'info');
+        else showToast(d.message || '操作完成', 'success');
+    });
+}
+function triggerUserReading(name) {
+    fetch('/users/' + encodeURIComponent(name) + '/reading', {method: 'POST'}).then(function(r) { return r.json(); }).then(function(d) {
+        showToast(d.message || '阅读任务已启动', d.status === 'ok' ? 'success' : 'error');
+    });
+}
+function deleteUser(name) {
+    showConfirm('确定删除用户「' + name + '」？此操作不可撤销。', function() {
+        fetch('/users/' + encodeURIComponent(name), {method: 'DELETE'}).then(function(r) { return r.json(); }).then(function(d) {
+            showToast(d.message, 'success');
+            loadUsers();
+        });
+    });
+}
+window.loginUser = loginUser;
+window.triggerUserReading = triggerUserReading;
+window.deleteUser = deleteUser;
+
+// === 登录弹窗 ===
+function openLoginModal() { document.getElementById('loginModal').classList.add('active'); startQRLogin(); }
+function closeLoginModal() { document.getElementById('loginModal').classList.remove('active'); if (qrPoll) { clearInterval(qrPoll); qrPoll = null; } }
+window.openLoginModal = openLoginModal;
+window.closeLoginModal = closeLoginModal;
+
+async function startQRLogin() {
+    var loading = document.getElementById('loginLoading');
+    var content = document.getElementById('loginContent');
+    var retryBtn = document.getElementById('btnRetryLogin');
+    var qrImg = document.getElementById('qrImage');
+    var statusText = document.getElementById('loginStatusText');
+    var loginStatus = document.getElementById('loginStatus');
+    loading.style.display = 'block'; content.style.display = 'none'; retryBtn.style.display = 'none';
+    if (qrPoll) { clearInterval(qrPoll); qrPoll = null; }
+    try {
+        var r = await fetch('/login/start'); var d = await r.json();
+        if (d.status === 'already_logged_in') {
+            loading.innerHTML = '<div class="login-st success">已登录</div>';
+            showToast('已登录', 'success');
+            setTimeout(function() { closeLoginModal(); location.reload(); }, 1200);
+            return;
+        }
+        loading.style.display = 'none'; content.style.display = 'block';
+        qrImg.src = 'data:image/png;base64,' + d.qr_image;
+        statusText.textContent = '等待扫码...'; statusText.className = 'login-st info';
+        qrPoll = setInterval(async function() {
+            try {
+                var sr = await fetch('/login/status'); var ss = await sr.json();
+                if (ss.status === 'success') {
+                    statusText.innerHTML = '登录成功'; statusText.className = 'login-st success';
+                    loginStatus.textContent = '已登录'; loginStatus.className = 'value success';
+                    clearInterval(qrPoll); qrPoll = null;
+                    showToast('登录成功', 'success');
+                    setTimeout(function() { closeLoginModal(); location.reload(); }, 1200);
+                } else if (ss.status === 'failed') {
+                    statusText.textContent = ss.error || '超时'; statusText.className = 'login-st error';
+                    retryBtn.style.display = 'inline-flex'; clearInterval(qrPoll); qrPoll = null;
+                }
+            } catch(e) {}
+        }, 2000);
+    } catch(e) {
+        loading.innerHTML = '<div class="login-st error">' + e + '</div>'; retryBtn.style.display = 'inline-flex';
+    }
+}
+window.startQRLogin = startQRLogin;
+
+// === 阅读触发 ===
+async function triggerReading() {
+    var btn = document.getElementById('btnRead');
+    if (btn.textContent.indexOf('停止') >= 0) {
+        await fetch('/stop-reading', {method: 'POST'});
+        btn.disabled = false; btn.innerHTML = '立即阅读';
+        showToast('已停止阅读', 'info');
+        return;
+    }
+    btn.disabled = true;
+    var mode = currentMode || 'api';
+    var url = mode === 'browser' ? '/trigger-reading' : '/trigger-api-reading';
+    btn.innerHTML = mode === 'browser' ? '浏览器阅读中...' : 'API阅读中...';
+    try {
+        var r = await fetch(url, {method: 'POST'});
+        var d = await r.json();
+        if (d.status === 'error') { showToast(d.message, 'error'); btn.disabled = false; btn.innerHTML = '立即阅读'; return; }
+        showToast(d.message || '阅读已启动', 'success');
+        startProgressPoll();
+    } catch(e) {
+        btn.disabled = false; btn.innerHTML = '立即阅读';
+        showToast('启动失败: ' + e, 'error');
+    }
+}
+window.triggerReading = triggerReading;
+
+function startProgressPoll() {
+    if (progressPoll) clearInterval(progressPoll);
+    if (logPoll) clearInterval(logPoll);
+    simRunning = true;
+    var readStartTime = Date.now();
+    function updateUI() {
+        var btn = document.getElementById('btnRead');
+        if (!simRunning) {
+            document.getElementById('progressFill').style.width = '0%';
+            document.getElementById('progressStatus').textContent = '空闲';
+            document.getElementById('progressTime').textContent = '';
+            document.getElementById('progressBook').textContent = '';
+            if (btn) { btn.disabled = false; btn.innerHTML = '立即阅读'; }
+            if (progressPoll) { clearInterval(progressPoll); progressPoll = null; }
+            if (logPoll) { clearInterval(logPoll); logPoll = null; }
+            return;
+        }
+        var el = simElapsed + Math.round((Date.now() - simLastTime) / 1000);
+        var tl = simTarget || 1;
+        el = Math.min(el, tl);
+        var pct = Math.min(100, Math.round(el / tl * 100));
+        document.getElementById('progressFill').style.width = pct + '%';
+        var em = Math.floor(el / 60), es = el % 60;
+        var tm = Math.floor(tl / 60), ts = tl % 60;
+        document.getElementById('progressTime').textContent = em + '分' + es + '秒 / ' + tm + '分' + ts + '秒';
+        document.getElementById('progressStatus').textContent = '进度 ' + pct + '%';
+        if (btn) { btn.disabled = false; btn.innerHTML = '停止'; }
+    }
+    function refreshBackend() {
+        fetch('/api-reading-progress').then(function(r) { return r.json(); }).then(function(d) {
+            if (d.mode === 'browser' && currentMode !== 'browser') setMode('browser');
+            if (d.mode === 'api' && d.is_running && currentMode !== 'api') setMode('api');
+            var bk = d.book_name || d.current_book || '';
+            document.getElementById('progressBook').textContent = bk ? '\uD83D\uDCD6 ' + bk : '';
+            if (d.is_running) {
+                simRunning = true;
+                var newElapsed = d.elapsed || simElapsed;
+                if (newElapsed > simElapsed) {
+                    simElapsed = newElapsed;
+                    simLastTime = Date.now();
+                }
+                if (d.target && d.target > 0) { simTarget = d.target; }
+            } else {
+                simRunning = false;
+            }
+        }).catch(function() {});
+        fetch('/api-reading-logs').then(function(r) { return r.json(); }).then(function(logs) {
+            var c = document.getElementById('logConsole');
+            if (!logs || !logs.length) { c.innerHTML = '<div style="color:#64748b">等待日志...</div>'; return; }
+            c.innerHTML = logs.map(function(l) { return '<div>[' + l.time + '] ' + l.msg + '</div>'; }).join('');
+            c.scrollTop = c.scrollHeight;
+        }).catch(function() {});
+    }
+    refreshBackend();
+    progressPoll = setInterval(updateUI, 1000);
+    logPoll = setInterval(refreshBackend, 3000);
+}
+
+// === 测试通知 ===
+function testNotification() {
+    var btn = document.getElementById('btnTestNotify');
+    withLoading(btn, function() {
+        return fetch('/test-notification', {method: 'POST'}).then(function(r) { return r.json(); }).then(function(d) {
+            showToast(d.message, d.status === 'ok' ? 'success' : 'error');
+        });
+    });
+}
+window.testNotification = testNotification;
+
+// === 退出登录 ===
+function doLogout() {
+    showConfirm('确定退出当前账号？', async function() {
+        try {
+            var r = await fetch('/logout', {method: 'POST'});
+            var d = await r.json();
+            showToast(d.message, 'success');
+            setTimeout(function() { location.reload(); }, 1500);
+        } catch(e) { showToast('退出失败: ' + e, 'error'); }
+    });
+}
+window.doLogout = doLogout;
+
+// === CURL 捕获 ===
+function captureCurl() {
+    var btn = document.getElementById('btnCurl');
+    withLoading(btn, function() {
+        return fetch('/capture-curl', {method: 'POST'}).then(function(r) { return r.json(); }).then(function(d) {
+            showToast(d.status === 'ok' ? 'CURL 参数已保存' : d.message, d.status === 'ok' ? 'success' : 'error');
+        }).catch(function(e) { showToast('捕获失败: ' + e, 'error'); });
+    });
+}
+window.captureCurl = captureCurl;
+
+// === 时间段管理 ===
+function addTime(v) { scheduleTimes.push(v || '09:00'); renderTimes(); }
+function removeTime(i) { scheduleTimes.splice(i, 1); renderTimes(); }
+function updateTime(i, v) { scheduleTimes[i] = v; syncTimes(); }
+function syncTimes() { document.getElementById('scheduleTimes').value = JSON.stringify(scheduleTimes); }
+function renderTimes() {
+    var c = document.getElementById('timeSlots');
+    c.innerHTML = scheduleTimes.map(function(t, i) {
+        return '<div style="display:flex;gap:8px;align-items:center"><input type="time" value="' + t + '" onchange="updateTime(' + i + ',this.value)" style="width:140px;padding:8px 12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);border-radius:8px;color:#f8fafc;color-scheme:dark;font-size:.85rem"><button type="button" class="del-btn" onclick="removeTime(' + i + ')">删除</button></div>';
+    }).join('');
+    syncTimes();
+}
+window.addTime = addTime;
+window.removeTime = removeTime;
+window.updateTime = updateTime;
+
+// === 书籍管理 ===
+function addBook() { books.push({name: '', book_id: '', chapters: []}); renderBooks(); }
+function removeBook(i) { books.splice(i, 1); renderBooks(); }
+function updateBook(i, f, v) { books[i][f] = v; syncBooks(); }
+function syncBooks() { document.getElementById('booksJson').value = JSON.stringify(books); }
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function renderBooks() {
+    var c = document.getElementById('bookList');
+    if (!books.length) { c.innerHTML = '<div class="empty-state"><div class="empty-icon">&#x1F4DA;</div><div class="empty-text">暂无书籍，将随机浏览书架</div></div>'; syncBooks(); return; }
+    c.innerHTML = books.map(function(b, bi) {
+        var name = esc(b.name || ''), bid = esc(b.book_id || '');
+        return '<div class="book-item"><div class="book-header"><span class="book-title">书籍 ' + (bi + 1) + '</span><button type="button" class="ch-del-btn" onclick="removeBook(' + bi + ')" style="width:auto;padding:4px 12px;font-size:.8rem">删除</button></div><div class="form-group"><label>名称</label><input type="text" value="' + name + '" onchange="updateBook(' + bi + ',\'name\',this.value)"></div><div class="form-group"><label>书籍ID</label><input type="text" value="' + bid + '" onchange="updateBook(' + bi + ',\'book_id\',this.value)"></div></div>';
+    }).join('');
+    syncBooks();
+}
+window.addBook = addBook;
+window.removeBook = removeBook;
+window.updateBook = updateBook;
+
+// === 添加用户 ===
+function showAddUser() {
+    var name = prompt('输入新用户名:');
+    if (!name) return;
+    fetch('/users', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: name})})
+        .then(function(r) { return r.json(); })
+        .then(function(d) { showToast(d.message, d.status === 'ok' ? 'success' : 'error'); loadUsers(); })
+        .catch(function(e) { showToast('添加失败: ' + e, 'error'); });
+}
+window.showAddUser = showAddUser;
+
+// === 初始化 ===
+function init() {
+    var sb = {{ reading.books | tojson | safe }};
+    if (sb && sb.length) books = sb;
+    renderBooks();
+    var st = {{ schedule.times | tojson | safe }};
+    if (st && st.length) scheduleTimes = st.slice();
+    renderTimes();
+    loadUsers();
+    if (!scheduleTimes.length) { addTime('09:00'); addTime('12:00'); addTime('18:00'); }
+    refreshProgress();
+    updateLoginButtons();
+}
+
+function updateLoginButtons() {
+    var loginStatus = document.getElementById('loginStatus');
+    var btnLogin = document.getElementById('btnLogin');
+    var btnLogout = document.getElementById('btnLogout');
+    if (!loginStatus || !btnLogin || !btnLogout) return;
+    var isLoggedIn = loginStatus.textContent === '已登录';
+    btnLogin.style.display = isLoggedIn ? 'none' : '';
+    btnLogout.style.display = isLoggedIn ? '' : 'none';
+}
+
+function refreshProgress() {
+    fetch('/api-reading-progress').then(function(r) { return r.json(); }).then(function(d) {
+        if (d.is_running) {
+            simElapsed = d.elapsed || 0; simTarget = d.target || 1; simLastTime = Date.now(); simRunning = true;
+            var bk = d.book_name || d.message || d.current_book || '';
+            if (bk && bk.length > 30) bk = bk.slice(0, 30) + '...';
+            document.getElementById('progressBook').textContent = bk;
+            var br = document.getElementById('btnRead');
+            if (br) { br.disabled = false; br.innerHTML = '停止'; }
+            if (!progressPoll) startProgressPoll();
+        } else {
+            simRunning = false;
+            document.getElementById('progressStatus').textContent = '空闲';
+            document.getElementById('progressFill').style.width = '0%';
+            document.getElementById('progressTime').textContent = '';
+            document.getElementById('progressTimeRight').textContent = '';
+            document.getElementById('progressBook').textContent = '';
+            document.getElementById('progressStartTime').textContent = '';
+            document.getElementById('progressEndTime').textContent = '';
+        }
+    }).catch(function() {});
+}
+
+// === 保存配置 ===
+document.getElementById('configForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    var btn = document.getElementById('btnSave');
+    var fd = new FormData(this);
+    syncBooks(); syncTimes();
+    var data = {
+        target_duration: fd.get('target_duration'),
+        reading_mode: fd.get('reading_mode'),
+        reading_interval: fd.get('reading_interval'),
+        schedule_enabled: fd.has('schedule_enabled'),
+        schedule_times: scheduleTimes,
+        daemon_enabled: fd.has('daemon_enabled'),
+        daemon_session_interval: fd.get('daemon_session_interval'),
+        daemon_max_daily: parseInt(fd.get('daemon_max_daily') || 12),
+        network_timeout: parseInt(fd.get('network_timeout') || 30),
+        network_retry_times: parseInt(fd.get('network_retry_times') || 3),
+        network_retry_delay: fd.get('network_retry_delay'),
+        network_rate_limit: parseInt(fd.get('network_rate_limit') || 10),
+        notification_enabled: fd.has('notification_enabled'),
+        notification_only_on_failure: fd.get('notification_only_on_failure') === 'true',
+        // 国内推送
+        bark_enabled: fd.has('bark_enabled'),
+        bark_server: fd.get('bark_server'),
+        bark_device_key: fd.get('bark_device_key'),
+        pushplus_enabled: fd.has('pushplus_enabled'),
+        pushplus_token: fd.get('pushplus_token'),
+        serverchan3_enabled: fd.has('serverchan3_enabled'),
+        serverchan3_uid: fd.get('serverchan3_uid'),
+        serverchan3_sendkey: fd.get('serverchan3_sendkey'),
+        wxpusher_enabled: fd.has('wxpusher_enabled'),
+        wxpusher_spt: fd.get('wxpusher_spt'),
+        pushdeer_enabled: fd.has('pushdeer_enabled'),
+        pushdeer_pushkey: fd.get('pushdeer_pushkey'),
+        // 即时通讯
+        telegram_enabled: fd.has('telegram_enabled'),
+        telegram_bot_token: fd.get('telegram_bot_token'),
+        telegram_chat_id: fd.get('telegram_chat_id'),
+        feishu_enabled: fd.has('feishu_enabled'),
+        feishu_webhook_url: fd.get('feishu_webhook_url'),
+        feishu_msg_type: fd.get('feishu_msg_type'),
+        wework_enabled: fd.has('wework_enabled'),
+        wework_webhook_url: fd.get('wework_webhook_url'),
+        wework_msg_type: fd.get('wework_msg_type'),
+        dingtalk_enabled: fd.has('dingtalk_enabled'),
+        dingtalk_webhook_url: fd.get('dingtalk_webhook_url'),
+        dingtalk_msg_type: fd.get('dingtalk_msg_type'),
+        // 通用推送
+        ntfy_enabled: fd.has('ntfy_enabled'),
+        ntfy_server: fd.get('ntfy_server'),
+        ntfy_topic: fd.get('ntfy_topic'),
+        gotify_enabled: fd.has('gotify_enabled'),
+        gotify_server: fd.get('gotify_server'),
+        gotify_token: fd.get('gotify_token'),
+        gotify_priority: parseInt(fd.get('gotify_priority') || 5),
+        books_json: document.getElementById('booksJson').value
+    };
+    btn.disabled = true; var origText = btn.textContent; btn.textContent = '保存中...';
+    try {
+        var r = await fetch('/save-config', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
+        var d = await r.json();
+        showToast(d.message, 'success');
+    } catch(err) { showToast('保存失败: ' + err, 'error'); }
+    btn.disabled = false; btn.textContent = origText;
+});
+
+if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', init); }
+else { init(); }
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,179 @@
+name: Auto Reading Bot
+
+on:
+  schedule:
+    - cron: '0 0,12 * * *'
+
+  workflow_dispatch:
+    inputs:
+      target_duration:
+        description: '阅读时长（分钟，格式：10-20）'
+        required: false
+        default: '30-60'
+        type: string
+      reading_mode:
+        description: '阅读模式'
+        required: false
+        default: 'smart_random'
+        type: choice
+        options:
+        - smart_random
+        - sequential
+        - pure_random
+      notify_enabled:
+        description: '启用通知'
+        required: false
+        default: true
+        type: boolean
+      notification_only_on_failure:
+        description: '仅失败时通知'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  reading:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create directories
+        run: |
+          mkdir -p shared/logs
+          mkdir -p shared/credentials
+
+      - name: Generate config
+        run: |
+          cat > config.yaml << 'EOF'
+          app:
+            name: "weread-auto-reader"
+            version: "1.0.0"
+            host: "0.0.0.0"
+            port: 8000
+            startup_mode: "immediate"
+            startup_delay: "1-10"
+
+          reading:
+            target_duration: "${{ inputs.target_duration || '30-60' }}"
+            mode: "${{ inputs.reading_mode || 'smart_random' }}"
+            reading_interval: "25-35"
+            book_continuity: 0.8
+            chapter_continuity: 0.7
+            break_probability: 0.1
+            break_duration: "10-20"
+            books: []
+
+          schedule:
+            enabled: true
+            cron_expression: "0 */2 * * *"
+            timezone: "Asia/Shanghai"
+
+          daemon:
+            enabled: false
+            session_interval: "120-180"
+            max_daily_sessions: 12
+
+          notification:
+            enabled: ${{ inputs.notify_enabled || true }}
+            include_statistics: true
+            only_on_failure: ${{ inputs.notification_only_on_failure || false }}
+            bark:
+              enabled: false
+              server: "https://api.day.app"
+              device_key: ""
+            pushplus:
+              enabled: false
+              token: ""
+            telegram:
+              enabled: false
+              bot_token: ""
+              chat_id: ""
+            wxpusher:
+              enabled: false
+              spt: ""
+            ntfy:
+              enabled: false
+              server: "https://ntfy.sh"
+              topic: ""
+            feishu:
+              enabled: false
+              webhook_url: ""
+              msg_type: "text"
+            wework:
+              enabled: false
+              webhook_url: ""
+              msg_type: "text"
+            dingtalk:
+              enabled: false
+              webhook_url: ""
+              msg_type: "text"
+            gotify:
+              enabled: false
+              server: ""
+              token: ""
+              priority: 5
+            serverchan3:
+              enabled: false
+              uid: ""
+              sendkey: ""
+            pushdeer:
+              enabled: false
+              pushkey: ""
+
+          browser:
+            headless: true
+            user_agent: ""
+
+          network:
+            timeout: 30
+            retry_times: 3
+            retry_delay: "5-15"
+            rate_limit: 10
+
+          human_simulation:
+            enabled: true
+            rotate_user_agent: false
+            user_agents:
+              - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+          hack:
+            cookie_refresh_ql: false
+
+          history:
+            enabled: true
+            file: "shared/logs/run-history.json"
+            max_entries: 50
+
+          log:
+            level: "INFO"
+            file: "shared/logs/weread.log"
+          EOF
+
+      - name: Run reading bot
+        env:
+          WEREAD_CURL_STRING: ${{ secrets.WEREAD_CURL_STRING }}
+        run: |
+          python main.py --mode immediate || true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weread-logs-${{ github.run_id }}
+          path: |
+            shared/logs/*.log
+            shared/logs/*.json
+          retention-days: 7
