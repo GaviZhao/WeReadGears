@@ -1,6 +1,7 @@
 # WeReadGears
 [![Python](https://img.shields.io/badge/python-3.9+-blue?style=flat-square)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+
 微信读书自动阅读机器人，支持 7x24 小时不间断运行，模拟真人阅读行为。
 
 ## 适合哪些用户
