@@ -79,6 +79,7 @@ class ApiReader:
         self._needs_refresh = False
         self._last_logged_book = ""
         self._last_logged_chapter = ""
+        self._fail_reason = ""
 
         self.http_client: Optional[HttpClient] = None
         self._init_http_client()
@@ -249,6 +250,8 @@ class ApiReader:
         self._last_logged_book = ""
         self._last_logged_chapter = ""
 
+        self._fail_reason = ""
+
         reading_config = config.get("reading", {})
         target_duration_str = reading_config.get("target_duration", "60-90")
         if isinstance(target_duration_str, str) and "-" in target_duration_str:
@@ -345,9 +348,11 @@ class ApiReader:
                                     last_time = int(time.time())
 
                 except Exception as e:
-                    logger.warning(f"阅读请求异常: {e}")
                     self.failed_reads += 1
                     self.errors[str(e)[:60]] = self.errors.get(str(e)[:60], 0) + 1
+                    logger.warning(f"API 请求异常，立即切换模拟模式: {e}")
+                    self.should_stop = True
+                    self._fail_reason = str(e)[:100]
 
                 interval = random.uniform(interval_min, interval_max)
 
@@ -386,8 +391,23 @@ class ApiReader:
                     self._last_progress_time = self.elapsed_seconds
 
             actual_minutes = self.elapsed_seconds / 60
-            logger.info(f"阅读完成，实际: {actual_minutes:.1f}分钟 成功:{self.total_reads} 失败:{self.failed_reads}")
 
+            if self.should_stop and self._fail_reason:
+                logger.warning(f"API 异常终止: {self._fail_reason}")
+                return ReadingResult(
+                    status="error",
+                    elapsed_seconds=self.elapsed_seconds,
+                    elapsed_minutes=actual_minutes,
+                    target_minutes=target_minutes,
+                    total_reads=self.total_reads,
+                    failed_reads=self.failed_reads,
+                    books_read=0,
+                    errors={**self.errors, "fail_reason": self._fail_reason},
+                    start_time=self.start_time.isoformat(),
+                    end_time=datetime.now().isoformat(),
+                )
+
+            logger.info(f"阅读完成，实际: {actual_minutes:.1f}分钟 成功:{self.total_reads} 失败:{self.failed_reads}")
             return ReadingResult(
                 status="completed",
                 elapsed_seconds=self.elapsed_seconds,

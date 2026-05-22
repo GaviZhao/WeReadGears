@@ -89,6 +89,10 @@ async def reading_with_fallback():
         else:
             for r in results:
                 rr = r.result
+                if rr and rr.errors and rr.errors.get("fail_reason"):
+                    fallback_needed = True
+                    fallback_reason = f"API请求异常: {rr.errors['fail_reason']}"
+                    break
                 if rr and rr.total_reads == 0 and rr.failed_reads > 0:
                     fallback_needed = True
                     fallback_reason = f"API请求全部失败（{rr.failed_reads}次）"
