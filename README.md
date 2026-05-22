@@ -199,12 +199,12 @@ WeReadGears/
 
 ```yaml
 services:
-  weread:
+  wereadgears:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: weread
-    hostname: weread
+    container_name: wereadgears
+    hostname: wereadgears
     ports:
       - "8080:8000"
     volumes:
