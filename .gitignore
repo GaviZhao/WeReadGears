@@ -15,3 +15,4 @@ ENV/
 .DS_Store
 *.log
 shared/
+docker-compose.yaml

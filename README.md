@@ -209,6 +209,7 @@ services:
       - "8080:8000"
     volumes:
       - ./shared:/app/shared
+      - ./src:/app/src
     environment:
       - TZ=Asia/Shanghai
       - CONFIG_FILE=/app/shared/config.yaml
