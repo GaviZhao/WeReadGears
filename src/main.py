@@ -237,9 +237,12 @@ async def main():
 
         if mode == "scheduled":
             await run_scheduled_mode()
+            scheduler.register_weekly_reminder(notifier.notify_weekly_reward)
         elif mode == "daemon":
             await run_daemon_mode()
+            scheduler.register_weekly_reminder(notifier.notify_weekly_reward)
         elif mode == "immediate":
+            scheduler.register_weekly_reminder(notifier.notify_weekly_reward)
             asyncio.create_task(startup_reading_and_schedule())
 
         port = config.get("app.port", 8000)

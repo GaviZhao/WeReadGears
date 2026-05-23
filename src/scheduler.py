@@ -15,6 +15,7 @@ class TaskScheduler:
         self.task_id: Optional[str] = None
         self.is_running = False
         self._task_func: Optional[Callable] = None
+        self._weekly_reminder_func: Optional[Callable] = None
 
     def set_task(self, task_func: Callable):
         self._task_func = task_func
@@ -66,6 +67,26 @@ class TaskScheduler:
                 await self._task_func()
             except Exception as e:
                 logger.error(f"定时任务执行失败: {e}")
+
+    async def _run_weekly_reminder(self):
+        if config.get("notification.weekly_reward_reminder", True):
+            logger.info("发送每周阅读奖励提醒")
+            try:
+                await self._weekly_reminder_func()
+            except Exception as e:
+                logger.error(f"每周提醒发送失败: {e}")
+
+    def register_weekly_reminder(self, func):
+        self._weekly_reminder_func = func
+        if self.scheduler:
+            self.scheduler.add_job(
+                self._run_weekly_reminder,
+                trigger=CronTrigger(day_of_week="sun", hour=10, minute=0,
+                                    timezone=config.get("schedule.timezone", "Asia/Shanghai")),
+                id="weekly_reward_reminder",
+                replace_existing=True
+            )
+            logger.info("每周阅读奖励提醒已注册（周日 10:00）")
 
     async def trigger_now(self):
         logger.info("手动触发立即执行")

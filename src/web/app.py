@@ -128,6 +128,7 @@ async def index(request: Request):
         "notification": {
             "enabled": notification_config.get("enabled", False),
             "only_on_failure": notification_config.get("only_on_failure", False),
+            "weekly_reward_reminder": notification_config.get("weekly_reward_reminder", True),
             "bark": notification_config.get("bark", {"enabled": False, "server": "https://api.day.app", "device_key": ""}),
             "pushplus": notification_config.get("pushplus", {"enabled": False, "token": ""}),
             "telegram": notification_config.get("telegram", {"enabled": False, "bot_token": "", "chat_id": ""}),
@@ -193,6 +194,7 @@ async def save_config(request: Request):
         "notification": {
             "enabled": data.get("notification_enabled", True),
             "only_on_failure": data.get("notification_only_on_failure", False),
+            "weekly_reward_reminder": data.get("weekly_reward_reminder", True),
             "bark": {
                 "enabled": data.get("bark_enabled", False),
                 "server": data.get("bark_server", "https://api.day.app"),

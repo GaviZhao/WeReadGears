@@ -321,6 +321,10 @@
                         <label style="display:flex;align-items:center;gap:8px;color:#94a3b8;font-size:.85rem;cursor:pointer"><input type="radio" name="notification_only_on_failure" value="true" {{ 'checked' if notification.only_on_failure else '' }} style="accent-color:#6366f1"> 仅失败</label>
                     </div>
                 </div>
+                <div class="form-group">
+                    <label>每周奖励提醒（周日 10:00）</label>
+                    <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="weekly_reward_reminder" {{ 'checked' if notification.get('weekly_reward_reminder', True) else '' }}><span class="toggle-slider"></span></label></div>
+                </div>
                 <div class="ch-divider"></div>
 
                 <!-- 国内推送 -->
@@ -1009,6 +1013,7 @@ document.getElementById('configForm').addEventListener('submit', async function(
         network_rate_limit: parseInt(fd.get('network_rate_limit') || 10),
         notification_enabled: fd.has('notification_enabled'),
         notification_only_on_failure: fd.get('notification_only_on_failure') === 'true',
+        weekly_reward_reminder: fd.has('weekly_reward_reminder'),
         // 国内推送
         bark_enabled: fd.has('bark_enabled'),
         bark_server: fd.get('bark_server'),

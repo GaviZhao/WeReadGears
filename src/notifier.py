@@ -26,6 +26,7 @@ class NotificationType(Enum):
     DAILY_REPORT = "daily_report"
     COOKIES_EXPIRED = "cookies_expired"
     CONTAINER_EXIT = "container_exit"
+    WEEKLY_REWARD = "weekly_reward"
     GENERAL = "general"
 
 
@@ -470,6 +471,12 @@ class Notifier:
 
     async def notify_runtime_error(self, error: str):
         await self.send(f"运行时错误: {error}", NotificationType.RUNTIME_ERROR)
+
+    async def notify_weekly_reward(self):
+        await self.send(
+            "📚 本周阅读已累计，别忘了去微信读书领取本周阅读奖励哦！\n每周奖励和排名奖励都可在微信读书 App 中查看领取。",
+            NotificationType.WEEKLY_REWARD
+        )
 
     async def notify_cookies_expired(self):
         await self.send("Cookies 已过期\n请重新扫码登录", NotificationType.COOKIES_EXPIRED)

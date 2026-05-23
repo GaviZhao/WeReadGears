@@ -76,6 +76,7 @@ class Config:
                 "enabled": True,
                 "include_statistics": True,
                 "only_on_failure": False,
+                "weekly_reward_reminder": True,
                 "bark": {
                     "enabled": False,
                     "server": "https://api.day.app",
