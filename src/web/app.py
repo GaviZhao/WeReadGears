@@ -264,7 +264,37 @@ async def trigger_reading():
 async def trigger_api_reading():
     if session_manager.is_running():
         return JSONResponse({"status": "error", "message": "阅读任务正在进行中"})
-    asyncio.create_task(session_manager.run_multi_user())
+
+    async def run_with_fallback():
+        results = await session_manager.run_multi_user()
+        fail_reason = ""
+        for r in (results or []):
+            rr = r.result
+            if rr and rr.errors and rr.errors.get("fail_reason"):
+                fail_reason = rr.errors["fail_reason"]
+                break
+        if fail_reason:
+            logger.warning(f"API异常，切换模拟模式: {fail_reason}")
+            await notifier.send(
+                f"API请求异常: {fail_reason}\n已自动切换到模拟模式",
+                NotificationType.READING_FAILED
+            )
+            await reader.start_reading()
+        else:
+            all_failed = True
+            for r in (results or []):
+                if r.status == "completed":
+                    all_failed = False
+                    break
+            if results and all_failed:
+                logger.warning("API全部失败，切换模拟模式")
+                await notifier.send(
+                    "API模式全部请求失败\n已自动切换到模拟模式",
+                    NotificationType.READING_FAILED
+                )
+                await reader.start_reading()
+
+    asyncio.create_task(run_with_fallback())
     return JSONResponse({"status": "ok", "message": "API 阅读任务已启动"})
 
 
