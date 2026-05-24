@@ -13,6 +13,9 @@ import asyncio
 import json
 import random
 
+from datetime import datetime, timedelta
+import locale
+
 from src.config import config
 from src.utils.logger import logger
 from src.browser import browser_manager
@@ -78,6 +81,22 @@ def _times_to_cron(times):
         return f"{list(minutes)[0]} {hours_str} * * *"
     return f"{','.join(str(m) for m in sorted(minutes))} {hours_str} * * *"
 
+
+def _get_weekly_info() -> dict:
+    day_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    now = datetime.now()
+    today_name = day_names[now.weekday()]
+    days_until_sunday = (6 - now.weekday()) % 7
+    if days_until_sunday == 0 and now.hour >= 10:
+        days_until_sunday = 7
+    next_sunday = now.replace(hour=10, minute=0, second=0, microsecond=0) + timedelta(days=days_until_sunday)
+    return {
+        "today_date": now.strftime("%m月%d日"),
+        "today_weekday": today_name,
+        "today_full": f"{now.strftime('%m月%d日')} {today_name}",
+        "next_sunday": next_sunday.strftime("%m月%d日"),
+        "next_sunday_full": f"{next_sunday.strftime('%m月%d日')} 周日 10:00",
+    }
 
 def _cron_to_times(cron):
     try:
@@ -153,7 +172,8 @@ async def index(request: Request):
         "scheduler_status": scheduler.get_status(),
         "users": users,
         "statistics": statistics,
-        "version": config.get("app.version", "1.0.0")
+        "version": config.get("app.version", "1.0.0"),
+        "weekly_info": _get_weekly_info()
     })
 
 
