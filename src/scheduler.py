@@ -2,6 +2,7 @@ import asyncio
 from typing import Callable, Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime, timedelta
 
@@ -16,6 +17,23 @@ class TaskScheduler:
         self.is_running = False
         self._task_func: Optional[Callable] = None
         self._weekly_reminder_func: Optional[Callable] = None
+
+    def _get_now(self) -> datetime:
+        tz_name = config.get("schedule.timezone", "Asia/Shanghai")
+        try:
+            from zoneinfo import ZoneInfo
+            return datetime.now(ZoneInfo(tz_name))
+        except Exception:
+            return datetime.now()
+
+    def _calc_next_sunday_10am(self) -> datetime:
+        now = self._get_now()
+        weekday = now.weekday()
+        days_until_sunday = (6 - weekday) % 7
+        if days_until_sunday == 0 and now.hour >= 10:
+            days_until_sunday = 7
+        next_sunday = now.replace(hour=10, minute=0, second=0, microsecond=0) + timedelta(days=days_until_sunday)
+        return next_sunday
 
     def set_task(self, task_func: Callable):
         self._task_func = task_func
@@ -69,24 +87,45 @@ class TaskScheduler:
                 logger.error(f"定时任务执行失败: {e}")
 
     async def _run_weekly_reminder(self):
-        if config.get("notification.weekly_reward_reminder", True):
-            logger.info("发送每周阅读奖励提醒")
-            try:
-                await self._weekly_reminder_func()
-            except Exception as e:
-                logger.error(f"每周提醒发送失败: {e}")
+        if not config.get("notification.weekly_reward_reminder", True):
+            logger.info("每周奖励提醒已关闭，跳过")
+            return
+        if not self._weekly_reminder_func:
+            return
+        logger.info("发送每周阅读奖励提醒")
+        try:
+            await self._weekly_reminder_func()
+        except Exception as e:
+            logger.error(f"每周提醒发送失败: {e}")
+        finally:
+            next_run = self._calc_next_sunday_10am()
+            if self.scheduler:
+                try:
+                    self.scheduler.reschedule_job(
+                        "weekly_reward_reminder",
+                        trigger=DateTrigger(run_date=next_run)
+                    )
+                    logger.info(f"下次每周提醒: {next_run.strftime('%Y-%m-%d %H:%M')} (周日)")
+                except Exception as e:
+                    logger.error(f"重新调度每周提醒失败: {e}")
 
     def register_weekly_reminder(self, func):
         self._weekly_reminder_func = func
+        if not config.get("notification.weekly_reward_reminder", True):
+            logger.info("每周奖励提醒未启用，不注册")
+            return
         if self.scheduler:
+            next_run = self._calc_next_sunday_10am()
+            today = self._get_now()
+            day_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+            logger.info(f"今天是 {day_names[today.weekday()]}，计算下个周日为 {next_run.strftime('%m月%d日')} 10:00")
             self.scheduler.add_job(
                 self._run_weekly_reminder,
-                trigger=CronTrigger(day_of_week="sun", hour=10, minute=0,
-                                    timezone=config.get("schedule.timezone", "Asia/Shanghai")),
+                trigger=DateTrigger(run_date=next_run),
                 id="weekly_reward_reminder",
                 replace_existing=True
             )
-            logger.info("每周阅读奖励提醒已注册（周日 10:00）")
+            logger.info(f"每周阅读奖励提醒已注册，首次触发: {next_run.strftime('%Y-%m-%d %H:%M')}")
 
     async def trigger_now(self):
         logger.info("手动触发立即执行")
