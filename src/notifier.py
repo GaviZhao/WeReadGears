@@ -374,9 +374,9 @@ class Notifier:
                 self.channels.append(PushDeerChannel(pushkey))
 
     def _should_notify(self, notif_type: NotificationType) -> bool:
-        if not self.enabled:
+        if not config.get("notification.enabled", True):
             return False
-        if self.only_on_failure:
+        if config.get("notification.only_on_failure", False):
             failure_types = {
                 NotificationType.LOGIN_FAILED,
                 NotificationType.READING_INTERRUPTED,
