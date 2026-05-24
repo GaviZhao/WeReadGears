@@ -1,8 +1,10 @@
-# WeReadGears
+# WeReadGears：微信读书自动阅读打卡
+[![Auto Reading Bot](https://img.shields.io/github/actions/workflow/status/funnyzak/weread-bot/auto-reading.yml?style=flat-square&label=Auto%20Reading)](https://github.com/funnyzak/weread-bot/actions/workflows/auto-reading.yml)
+[![Docker Tags](https://img.shields.io/docker/v/funnyzak/weread-bot?sort=semver&style=flat-square&label=docker%20image)](https://hub.docker.com/r/funnyzak/weread-bot/)
 [![Python](https://img.shields.io/badge/python-3.9+-blue?style=flat-square)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 
-微信读书自动阅读机器人，支持 7x24 小时不间断运行，模拟真人阅读行为。
+微信读书自动阅读工具，支持 7x24 小时不间断运行，模拟真人阅读行为，可视化配置，自定义通知。
 
 ## 适合哪些用户
 
