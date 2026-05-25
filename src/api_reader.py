@@ -68,6 +68,7 @@ class ApiReader:
         self.start_time: Optional[datetime] = None
         self.elapsed_seconds = 0
         self.total_break_seconds = 0
+        self.break_count = 0
         self.total_reads = 0
         self.failed_reads = 0
         self.books_read = 0
@@ -243,6 +244,7 @@ class ApiReader:
         self.start_time = datetime.now()
         self.elapsed_seconds = 0
         self.total_break_seconds = 0
+        self.break_count = 0
         self.total_reads = 0
         self.failed_reads = 0
         self.books_read = 0
@@ -360,7 +362,8 @@ class ApiReader:
 
                 if random.random() < break_prob:
                     break_time = random.randint(break_min, break_max)
-                    logger.info(f"模拟休息 {break_time} 秒")
+                    self.break_count += 1
+                    logger.info(f"模拟休息 #{self.break_count}：{break_time} 秒 (累计休息 {self.total_break_seconds} 秒)")
                     await asyncio.sleep(break_time)
                     self.total_break_seconds += break_time
 
@@ -378,6 +381,8 @@ class ApiReader:
                     log_msg = f"进度 {pct}% ({active_min}分{active_sec}秒)"
                     if self.total_reads > 0 or self.failed_reads > 0:
                         log_msg += f" | 成功 {self.total_reads} 失败 {self.failed_reads}"
+                    if self.break_count > 0:
+                        log_msg += f" | 休息{self.break_count}次/{self.total_break_seconds}秒"
                     progress = {
                         "elapsed": active_seconds,
                         "target": target_seconds,
@@ -413,7 +418,7 @@ class ApiReader:
                     end_time=datetime.now().isoformat(),
                 )
 
-            logger.info(f"阅读完成，实际: {actual_minutes:.1f}分钟 成功:{self.total_reads} 失败:{self.failed_reads}")
+            logger.info(f"阅读完成，实际: {actual_minutes:.1f}分钟 成功:{self.total_reads} 失败:{self.failed_reads} 休息{self.break_count}次/累计{self.total_break_seconds}秒")
             return ReadingResult(
                 status="completed",
                 elapsed_seconds=active_seconds,

@@ -173,9 +173,9 @@ class Reader:
 
                 if random.random() < break_prob:
                     break_time = random.randint(break_min, break_max)
-                    logger.info(f"模拟休息 {break_time} 秒")
                     self.breaks_taken += 1
                     self.total_break_time += break_time
+                    logger.info(f"模拟休息 #{self.breaks_taken}：{break_time} 秒 (累计休息 {self.total_break_time} 秒)")
                     await asyncio.sleep(break_time)
 
                 active_seconds = self.elapsed_seconds - self.total_break_time
@@ -203,7 +203,7 @@ class Reader:
 
             active_seconds = self.elapsed_seconds - self.total_break_time
             actual_minutes = active_seconds / 60
-            logger.info(f"阅读完成，实际阅读: {actual_minutes:.1f} 分钟，休息 {self.breaks_taken} 次")
+            logger.info(f"阅读完成，实际阅读: {actual_minutes:.1f} 分钟，休息 {self.breaks_taken} 次/累计 {self.total_break_time} 秒")
 
             return {
                 "status": "completed",
