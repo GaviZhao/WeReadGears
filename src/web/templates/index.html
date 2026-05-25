@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
     <title>WeReadGears</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚙</text></svg>">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'><defs><linearGradient id='gearGradient' x1='180' y1='180' x2='850' y2='850' gradientUnits='userSpaceOnUse'><stop offset='0%25' stop-color='%231EC8FF'/><stop offset='45%25' stop-color='%232864FF'/><stop offset='100%25' stop-color='%238A22FF'/></linearGradient><radialGradient id='glowGradient' cx='50%25' cy='45%25' r='50%25'><stop offset='0%25' stop-color='%233BCBFF' stop-opacity='0.55'/><stop offset='55%25' stop-color='%236633FF' stop-opacity='0.28'/><stop offset='100%25' stop-color='%23000000' stop-opacity='0'/></radialGradient><filter id='softGlow' x='-40%25' y='-40%25' width='180%25' height='180%25'><feGaussianBlur stdDeviation='38' result='blur'/><feMerge><feMergeNode in='blur'/><feMergeNode in='SourceGraphic'/></feMerge></filter><filter id='shadow' x='-20%25' y='-20%25' width='140%25' height='140%25'><feDropShadow dx='0' dy='24' stdDeviation='34' flood-color='%233F2CFF' flood-opacity='0.35'/></filter></defs><circle cx='512' cy='512' r='360' fill='url(%23glowGradient)' filter='url(%23softGlow)'/><g filter='url(%23shadow)'><path fill='url(%23gearGradient)' fill-rule='evenodd' d='M512 178C538 178 560 180 584 184L600 264C616 269 632 276 647 284L716 239C755 266 790 301 817 340L772 409C780 424 787 440 792 456L872 472C876 496 878 518 878 544C878 570 876 592 872 616L792 632C787 648 780 664 772 679L817 748C790 787 755 822 716 849L647 804C632 812 616 819 600 824L584 904C560 908 538 910 512 910C486 910 464 908 440 904L424 824C408 819 392 812 377 804L308 849C269 822 234 787 207 748L252 679C244 664 237 648 232 632L152 616C148 592 146 570 146 544C146 518 148 496 152 472L232 456C237 440 244 424 252 409L207 340C234 301 269 266 308 239L377 284C392 276 408 269 424 264L440 184C464 180 486 178 512 178ZM512 336C397 336 304 429 304 544C304 659 397 752 512 752C627 752 720 659 720 544C720 429 627 336 512 336Z'/><circle cx='512' cy='544' r='132' fill='%2317191D' opacity='0.96'/><circle cx='512' cy='544' r='185' fill='none' stroke='rgba(255,255,255,0.22)' stroke-width='22'/><circle cx='512' cy='544' r='132' fill='none' stroke='rgba(255,255,255,0.12)' stroke-width='2'/></g></svg>">
     <style>
         *{box-sizing:border-box;margin:0;padding:0}
         body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a0f;min-height:100vh;color:#f8fafc;line-height:1.6}
@@ -176,6 +176,10 @@
         ::-webkit-scrollbar-track{background:rgba(255,255,255,.03);border-radius:3px}
         ::-webkit-scrollbar-thumb{background:rgba(99,102,241,.3);border-radius:3px}
         ::-webkit-scrollbar-thumb:hover{background:rgba(99,102,241,.5)}
+        @keyframes idleGlow{0%,100%{filter:drop-shadow(0 0 8px rgba(30,200,255,.2))}50%{filter:drop-shadow(0 0 18px rgba(138,34,255,.4))}}
+        .gear-wrap .gear-icon{animation:idleGlow 3s ease-in-out infinite}
+        @keyframes gspin{0%{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+        .gear-wrap.spinning .gear-icon{animation:gspin 3s linear infinite}
     </style>
 </head>
 <body>
@@ -183,10 +187,39 @@
 
 <div class="container">
     <div class="header">
-        <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:12px">
-            <div style="width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,#6366f1,#06b6d4);display:flex;align-items:center;justify-content:center;font-size:28px;box-shadow:0 8px 32px rgba(99,102,241,.3)">⚙</div>
-            <div style="text-align:left">
-                <h1 style="font-size:2rem;font-weight:700;background:linear-gradient(135deg,#6366f1,#06b6d4,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin:0;letter-spacing:-.5px">WeReadGears</h1>
+        <div style="display:flex;align-items:center;justify-content:center;gap:20px">
+            <div class="gear-wrap" style="display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:14px;background:rgba(99,102,241,.08)">
+                <svg viewBox="140 170 780 780" width="38" height="38">
+                    <defs>
+                        <linearGradient id="gearGradient" x1="180" y1="180" x2="850" y2="850" gradientUnits="userSpaceOnUse">
+                            <stop offset="0%" stop-color="#1EC8FF"/>
+                            <stop offset="45%" stop-color="#2864FF"/>
+                            <stop offset="100%" stop-color="#8A22FF"/>
+                        </linearGradient>
+                        <radialGradient id="glowGradient" cx="50%" cy="45%" r="50%">
+                            <stop offset="0%" stop-color="#3BCBFF" stop-opacity="0.55"/>
+                            <stop offset="55%" stop-color="#6633FF" stop-opacity="0.28"/>
+                            <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+                        </radialGradient>
+                        <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+                            <feGaussianBlur stdDeviation="38" result="blur"/>
+                            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                        </filter>
+                        <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+                            <feDropShadow dx="0" dy="24" stdDeviation="34" flood-color="#3F2CFF" flood-opacity="0.35"/>
+                        </filter>
+                    </defs>
+                    <circle cx="530" cy="544" r="360" fill="url(#glowGradient)" filter="url(#softGlow)"/>
+                    <g class="gear-icon" filter="url(#shadow)" style="transform-origin:530px 544px">
+                        <path fill="url(#gearGradient)" fill-rule="evenodd" d="M512 178C538 178 560 180 584 184L600 264C616 269 632 276 647 284L716 239C755 266 790 301 817 340L772 409C780 424 787 440 792 456L872 472C876 496 878 518 878 544C878 570 876 592 872 616L792 632C787 648 780 664 772 679L817 748C790 787 755 822 716 849L647 804C632 812 616 819 600 824L584 904C560 908 538 910 512 910C486 910 464 908 440 904L424 824C408 819 392 812 377 804L308 849C269 822 234 787 207 748L252 679C244 664 237 648 232 632L152 616C148 592 146 570 146 544C146 518 148 496 152 472L232 456C237 440 244 424 252 409L207 340C234 301 269 266 308 239L377 284C392 276 408 269 424 264L440 184C464 180 486 178 512 178ZM512 336C397 336 304 429 304 544C304 659 397 752 512 752C627 752 720 659 720 544C720 429 627 336 512 336Z"/>
+                        <circle cx="512" cy="544" r="132" fill="#17191D" opacity="0.96"/>
+                        <circle cx="512" cy="544" r="185" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="22"/>
+                        <circle cx="512" cy="544" r="132" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
+                    </g>
+                </svg>
+            </div>
+            <div>
+                <h1 style="font-size:2rem;font-weight:700;background:linear-gradient(135deg,#6366f1,#06b6d4,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin:0;letter-spacing:-.5px;line-height:1.2">WeReadGears</h1>
                 <p style="color:#64748b;font-size:.85rem;margin:2px 0 0 0">微信读书 · 自动阅读</p>
             </div>
         </div>
@@ -611,6 +644,8 @@ function setMode(m) {
         var btn = document.getElementById('btnRead');
         if (btn && btn.textContent.indexOf('停止') >= 0) {
             fetch('/stop-reading', {method: 'POST'});
+            var gearIcon = document.querySelector('.gear-wrap');
+            if (gearIcon) gearIcon.classList.remove('spinning');
             btn.disabled = false; btn.innerHTML = '立即阅读';
             if (progressPoll) { clearInterval(progressPoll); progressPoll = null; }
             if (logPoll) { clearInterval(logPoll); logPoll = null; }
@@ -813,6 +848,8 @@ function startProgressPoll() {
     if (progressPoll) clearInterval(progressPoll);
     if (logPoll) clearInterval(logPoll);
     simRunning = true;
+    var gearIcon = document.querySelector('.gear-wrap');
+    if (gearIcon) gearIcon.classList.add('spinning');
     var readStartTime = Date.now();
     function updateUI() {
         var btn = document.getElementById('btnRead');
@@ -821,6 +858,8 @@ function startProgressPoll() {
             document.getElementById('progressStatus').textContent = '空闲';
             document.getElementById('progressTime').textContent = '';
             document.getElementById('progressBook').textContent = '';
+            var gearIcon = document.querySelector('.gear-icon');
+            if (gearIcon) gearIcon.classList.remove('spinning');
             if (btn) { btn.disabled = false; btn.innerHTML = '立即阅读'; }
             if (progressPoll) { clearInterval(progressPoll); progressPoll = null; }
             if (logPoll) { clearInterval(logPoll); logPoll = null; }
