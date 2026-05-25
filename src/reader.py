@@ -163,7 +163,7 @@ class Reader:
             break_min, break_max = self._parse_duration(config.get("reading.break_duration", "30-180"))
             chapter_continuity = config.get("reading.chapter_continuity", 0.7)
 
-            while self.elapsed_seconds < target_seconds and not self.should_stop:
+            while not self.should_stop:
                 interval = random.uniform(reading_interval_min, reading_interval_max)
 
                 await self._human_like_scroll(page)
@@ -178,31 +178,36 @@ class Reader:
                     self.total_break_time += break_time
                     await asyncio.sleep(break_time)
 
+                active_seconds = self.elapsed_seconds - self.total_break_time
+                if active_seconds >= target_seconds:
+                    break
+
                 if reading_mode == "smart_random":
-                    if self._should_switch_book(self.elapsed_seconds) and random.random() < (1 - chapter_continuity):
+                    if self._should_switch_book(active_seconds) and random.random() < (1 - chapter_continuity):
                         new_book = self._select_book()
                         if new_book and new_book.get("book_id") != self.current_book.get("book_id"):
                             logger.info(f"智能切换到书籍: {new_book.get('name', 'Unknown')}")
                             await self._navigate_to_book(page, new_book)
                             self.current_book = new_book
                             self.books_read += 1
-                            self.last_book_switch_time = self.elapsed_seconds
+                            self.last_book_switch_time = active_seconds
 
-                if self.progress_callback and self.elapsed_seconds % 60 < 5:
-                    progress = int((self.elapsed_seconds / target_seconds) * 100)
+                if self.progress_callback and active_seconds % 60 < 5:
+                    progress = int((active_seconds / target_seconds) * 100)
                     await self.progress_callback({
-                        "elapsed": self.elapsed_seconds,
+                        "elapsed": active_seconds,
                         "target": target_seconds,
                         "progress": min(progress, 100),
                         "current_book": self.current_book.get("name") if self.current_book else None
                     })
 
-            actual_minutes = self.elapsed_seconds / 60
+            active_seconds = self.elapsed_seconds - self.total_break_time
+            actual_minutes = active_seconds / 60
             logger.info(f"阅读完成，实际阅读: {actual_minutes:.1f} 分钟，休息 {self.breaks_taken} 次")
 
             return {
                 "status": "completed",
-                "elapsed_seconds": self.elapsed_seconds,
+                "elapsed_seconds": active_seconds,
                 "elapsed_minutes": actual_minutes,
                 "target_minutes": target_minutes,
                 "books_read": self.books_read if self.books_read > 0 else 1,
@@ -215,7 +220,7 @@ class Reader:
             return {
                 "status": "error",
                 "error": str(e),
-                "elapsed_seconds": self.elapsed_seconds
+                "elapsed_seconds": max(0, self.elapsed_seconds - self.total_break_time)
             }
         finally:
             self.is_reading = False
@@ -225,9 +230,11 @@ class Reader:
         self.should_stop = True
 
     def get_status(self) -> Dict[str, Any]:
+        active_seconds = max(0, self.elapsed_seconds - self.total_break_time)
         return {
             "is_reading": self.is_reading,
-            "elapsed_seconds": self.elapsed_seconds,
+            "elapsed_seconds": active_seconds,
+            "total_elapsed": self.elapsed_seconds,
             "start_time": self.start_time.isoformat() if self.start_time else None,
             "current_book": self.current_book.get("name") if self.current_book else None
         }

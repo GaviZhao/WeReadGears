@@ -67,6 +67,7 @@ class ApiReader:
         self.should_stop = False
         self.start_time: Optional[datetime] = None
         self.elapsed_seconds = 0
+        self.total_break_seconds = 0
         self.total_reads = 0
         self.failed_reads = 0
         self.books_read = 0
@@ -241,6 +242,7 @@ class ApiReader:
         self.should_stop = False
         self.start_time = datetime.now()
         self.elapsed_seconds = 0
+        self.total_break_seconds = 0
         self.total_reads = 0
         self.failed_reads = 0
         self.books_read = 0
@@ -302,7 +304,7 @@ class ApiReader:
         refresh_attempted = False
 
         try:
-            while self.elapsed_seconds < target_seconds and not self.should_stop:
+            while not self.should_stop:
                 if mode == "smart_random":
                     if self.elapsed_seconds - last_book_switch_time > 300 and random.random() > book_continuity:
                         bid, cid, ci, bname, _ = self._select_book_and_chapter()
@@ -360,20 +362,24 @@ class ApiReader:
                     break_time = random.randint(break_min, break_max)
                     logger.info(f"模拟休息 {break_time} 秒")
                     await asyncio.sleep(break_time)
-                    self.elapsed_seconds += break_time
+                    self.total_break_seconds += break_time
 
                 await asyncio.sleep(interval)
                 self.elapsed_seconds = int((datetime.now() - self.start_time).total_seconds())
+                active_seconds = self.elapsed_seconds - self.total_break_seconds
 
-                if on_progress and self.elapsed_seconds - (self._last_progress_time or 0) >= 10:
-                    pct = min(int((self.elapsed_seconds / target_seconds) * 100), 100)
-                    elapsed_m = self.elapsed_seconds // 60
-                    elapsed_s = self.elapsed_seconds % 60
-                    log_msg = f"进度 {pct}% ({elapsed_m}分{elapsed_s}秒)"
+                if active_seconds >= target_seconds:
+                    break
+
+                if on_progress and active_seconds - (self._last_progress_time or 0) >= 10:
+                    active_min = active_seconds // 60
+                    active_sec = active_seconds % 60
+                    pct = min(int((active_seconds / target_seconds) * 100), 100)
+                    log_msg = f"进度 {pct}% ({active_min}分{active_sec}秒)"
                     if self.total_reads > 0 or self.failed_reads > 0:
                         log_msg += f" | 成功 {self.total_reads} 失败 {self.failed_reads}"
                     progress = {
-                        "elapsed": self.elapsed_seconds,
+                        "elapsed": active_seconds,
                         "target": target_seconds,
                         "progress": pct,
                         "current_book": self.last_book_id,
@@ -388,15 +394,15 @@ class ApiReader:
                         ch_info = f" 第{self.last_chapter_index}章" if self.last_chapter_index is not None else ""
                         progress["log"] = f"阅读: {self.last_book_name or self.last_book_id}{ch_info}"
                     await on_progress(progress)
-                    self._last_progress_time = self.elapsed_seconds
+                    self._last_progress_time = active_seconds
 
-            actual_minutes = self.elapsed_seconds / 60
+            actual_minutes = active_seconds / 60
 
             if self.should_stop and self._fail_reason:
                 logger.warning(f"API 异常终止: {self._fail_reason}")
                 return ReadingResult(
                     status="error",
-                    elapsed_seconds=self.elapsed_seconds,
+                    elapsed_seconds=active_seconds,
                     elapsed_minutes=actual_minutes,
                     target_minutes=target_minutes,
                     total_reads=self.total_reads,
@@ -410,7 +416,7 @@ class ApiReader:
             logger.info(f"阅读完成，实际: {actual_minutes:.1f}分钟 成功:{self.total_reads} 失败:{self.failed_reads}")
             return ReadingResult(
                 status="completed",
-                elapsed_seconds=self.elapsed_seconds,
+                elapsed_seconds=active_seconds,
                 elapsed_minutes=actual_minutes,
                 target_minutes=target_minutes,
                 total_reads=self.total_reads,
