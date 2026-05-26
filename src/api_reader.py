@@ -160,6 +160,8 @@ class ApiReader:
     def _prepare_payload(self, last_time: int):
         """准备单次阅读请求的payload（同 weread-bot _prepare_read_payload）"""
         self.data.pop("s", None)
+        for field in ("co", "sm", "pr"):
+            self.data.pop(field, None)
 
         if self.last_book_id:
             self.data["b"] = self.last_book_id
@@ -172,7 +174,7 @@ class ApiReader:
 
         current_time = int(time.time())
         self.data["ct"] = current_time
-        self.data["rt"] = current_time - last_time if last_time else 0
+        self.data["rt"] = max(1, current_time - last_time) if last_time else 0
         self.data["ts"] = int(current_time * 1000) + random.randint(0, 1000)
         self.data["rn"] = random.randint(0, 1000)
         self.data["sg"] = hashlib.sha256(f"{self.data['ts']}{self.data['rn']}{KEY}".encode()).hexdigest()
@@ -182,7 +184,7 @@ class ApiReader:
         """刷新cookie（同 weread-bot _refresh_cookie）"""
         logger.info("刷新cookie...")
         try:
-            cookie_data = {"rq": "/web/book/read", "ql": config.get("hack.cookie_refresh_ql", False)}
+            cookie_data = {"rq": "/web/book/read", "ql": "false" if not config.get("hack.cookie_refresh_ql", False) else "true"}
             response, _ = await self.http_client.post(
                 self.RENEW_URL,
                 headers=self.headers,
@@ -223,12 +225,10 @@ class ApiReader:
             logger.warning(f"API响应JSON解析失败: {response.text[:200]}")
             return False
 
-        if "succ" in data and "synckey" in data:
+        if data.get("succ") == 1:
+            if "synckey" not in data:
+                logger.warning(f"API响应缺少synckey: {str(data)[:200]}")
             return True
-
-        if "succ" in data:
-            logger.warning(f"API响应缺少synckey: {str(data)[:200]}")
-            return False
 
         logger.warning(f"API响应无succ字段，触发cookie刷新: keys={list(data.keys())}")
         self._needs_refresh = True
