@@ -77,6 +77,7 @@ class ApiReader:
         self.last_book_name = ""
         self.last_chapter_id = ""
         self.last_chapter_index: Optional[int] = None
+        self.chapter_offset = 0
         self._last_progress_time = 0
         self._needs_refresh = False
         self._last_logged_book = ""
@@ -160,8 +161,7 @@ class ApiReader:
     def _prepare_payload(self, last_time: int):
         """准备单次阅读请求的payload（同 weread-bot _prepare_read_payload）"""
         self.data.pop("s", None)
-        for field in ("co", "sm", "pr"):
-            self.data.pop(field, None)
+        self.data.pop("sm", None)
 
         if self.last_book_id:
             self.data["b"] = self.last_book_id
@@ -169,6 +169,9 @@ class ApiReader:
             self.data["c"] = self.last_chapter_id
         if self.last_chapter_index is not None:
             self.data["ci"] = self.last_chapter_index
+
+        self.data["co"] = self.chapter_offset
+        self.data["pr"] = self.chapter_offset
 
         self._apply_user_identity()
 
@@ -251,6 +254,7 @@ class ApiReader:
         self.errors = {}
         self._last_progress_time = 0
         self._needs_refresh = False
+        self.chapter_offset = 0
         self._last_logged_book = ""
         self._last_logged_chapter = ""
 
@@ -335,7 +339,12 @@ class ApiReader:
                         self.total_reads += 1
                         last_time = int(time.time())
                         refresh_attempted = False
-                        if random.random() > chapter_continuity:
+                        self.chapter_offset += random.randint(50, 200)
+                        if self.chapter_offset > 10000:
+                            self.chapter_offset = 0
+                            self.last_chapter_index = (self.last_chapter_index or 0) + 1
+                            logger.info(f"章节推进: ci={self.last_chapter_index} (co={self.chapter_offset})")
+                        elif random.random() > chapter_continuity:
                             bid, cid, ci, bname, _ = self._select_book_and_chapter()
                             if bid and bid != self.last_book_id:
                                 self.last_book_id = bid
