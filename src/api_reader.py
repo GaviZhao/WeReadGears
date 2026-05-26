@@ -1,8 +1,10 @@
 import asyncio
+import json
 import random
 import time
 import hashlib
 import urllib.parse
+from pathlib import Path
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -79,6 +81,8 @@ class ApiReader:
         self.last_chapter_index: Optional[int] = None
         self.chapter_offset = 0
         self._last_progress_time = 0
+        self._progress_file = Path("shared/credentials/reading_progress.json")
+        self._load_progress()
         self._needs_refresh = False
         self._last_logged_book = ""
         self._last_logged_chapter = ""
@@ -91,6 +95,34 @@ class ApiReader:
         self.cookies: Dict[str, str] = {}
         self.headers: Dict[str, str] = {}
         self._init_from_credentials()
+
+    def _load_progress(self):
+        """从文件恢复上次阅读进度"""
+        try:
+            if self._progress_file.exists():
+                data = json.loads(self._progress_file.read_text(encoding="utf-8"))
+                self.last_book_id = data.get("last_book_id", "")
+                self.last_book_name = data.get("last_book_name", "")
+                self.last_chapter_id = data.get("last_chapter_id", "")
+                self.last_chapter_index = data.get("last_chapter_index")
+                self.chapter_offset = data.get("chapter_offset", 0)
+                logger.info(f"恢复阅读进度: {self.last_book_name or self.last_book_id} ci={self.last_chapter_index} co={self.chapter_offset}")
+        except Exception as e:
+            logger.warning(f"恢复阅读进度失败: {e}")
+
+    def _save_progress(self):
+        """保存当前阅读进度到文件"""
+        try:
+            self._progress_file.parent.mkdir(parents=True, exist_ok=True)
+            self._progress_file.write_text(json.dumps({
+                "last_book_id": self.last_book_id,
+                "last_book_name": self.last_book_name,
+                "last_chapter_id": self.last_chapter_id,
+                "last_chapter_index": self.last_chapter_index,
+                "chapter_offset": self.chapter_offset,
+            }, ensure_ascii=False), encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"保存阅读进度失败: {e}")
 
     def _init_from_credentials(self):
         """从凭证初始化请求数据和cookie/header"""
@@ -343,20 +375,26 @@ class ApiReader:
                         if self.chapter_offset > 5000:
                             self.chapter_offset = 0
                             self.last_chapter_index = (self.last_chapter_index or 0) + 1
-                            logger.info(f"章节推进: ci={self.last_chapter_index} (co={self.chapter_offset})")
+                            if self.last_chapter_index > 200:
+                                self.last_chapter_index = 0
+                            self._save_progress()
+                            logger.info(f"章节推进: ci={self.last_chapter_index}")
                         elif random.random() > chapter_continuity:
                             bid, cid, ci, bname, _ = self._select_book_and_chapter()
                             if bid and bid != self.last_book_id:
                                 self.last_book_id = bid
                                 self.last_book_name = bname or self.last_book_name
+                                self.chapter_offset = 0
+                                self.last_chapter_index = ci if ci is not None else 0
                                 self.books_read += 1
+                                self._save_progress()
                                 logger.info(f"切换书籍: {self.last_book_name or bid}")
-                            elif ci is not None:
-                                self.last_chapter_index = ci
-                                logger.debug(f"推进章节: ci={ci}")
                             else:
                                 self.last_chapter_index = (self.last_chapter_index or 0) + 1
-                                logger.debug(f"推进章节索引: ci={self.last_chapter_index}")
+                                if self.last_chapter_index > 200:
+                                    self.last_chapter_index = 0
+                                self._save_progress()
+                                logger.debug(f"推进章节: ci={self.last_chapter_index}")
                     else:
                         if self._needs_refresh and not refresh_attempted:
                             refresh_attempted = True
@@ -435,6 +473,7 @@ class ApiReader:
 
             if self.should_stop and self._fail_reason:
                 logger.warning(f"API 异常终止: {self._fail_reason}")
+                self._save_progress()
                 return ReadingResult(
                     status="error",
                     elapsed_seconds=active_seconds,
@@ -448,6 +487,7 @@ class ApiReader:
                     end_time=datetime.now().isoformat(),
                 )
 
+            self._save_progress()
             logger.info(f"阅读完成，实际: {actual_minutes:.1f}分钟 成功:{self.total_reads} 失败:{self.failed_reads} 休息{self.break_count}次/累计{self.total_break_seconds}秒")
             return ReadingResult(
                 status="completed",
