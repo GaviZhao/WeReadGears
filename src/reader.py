@@ -160,7 +160,7 @@ class Reader:
             reading_mode = config.get("reading.mode", "smart_random")
             reading_interval_min, reading_interval_max = self._parse_duration(config.get("reading.reading_interval", "10-20"))
             break_prob = config.get("reading.break_probability", 0.02)
-            break_min, break_max = self._parse_duration(config.get("reading.break_duration", "2-10"))
+            break_min, break_max = self._parse_duration(config.get("reading.break_duration", "2"))
             chapter_continuity = config.get("reading.chapter_continuity", 0.7)
 
             while not self.should_stop:

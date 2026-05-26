@@ -15,7 +15,7 @@ reading:
   book_continuity: 0.8           # 继续当前书籍概率 (0-1)
   chapter_continuity: 0.7        # 继续当前章节概率 (0-1)
   break_probability: 0.02        # 中途休息概率 (0-1)
-  break_duration: "2-10"          # 休息时长（秒）
+  break_duration: "2"              # 休息时长（秒）
   books: []                      # 指定书籍列表（空则随机）
 
 # 定时任务

@@ -274,7 +274,7 @@ class ApiReader:
             interval_min = interval_max = int(interval_str)
 
         break_prob = reading_config.get("break_probability", 0.02)
-        break_str = reading_config.get("break_duration", "2-10")
+        break_str = reading_config.get("break_duration", "2")
         if isinstance(break_str, str) and "-" in break_str:
             parts = break_str.split("-")
             break_min, break_max = int(parts[0]), int(parts[1])
