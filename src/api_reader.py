@@ -339,8 +339,8 @@ class ApiReader:
                         self.total_reads += 1
                         last_time = int(time.time())
                         refresh_attempted = False
-                        self.chapter_offset += random.randint(50, 200)
-                        if self.chapter_offset > 10000:
+                        self.chapter_offset += random.randint(200, 500)
+                        if self.chapter_offset > 5000:
                             self.chapter_offset = 0
                             self.last_chapter_index = (self.last_chapter_index or 0) + 1
                             logger.info(f"章节推进: ci={self.last_chapter_index} (co={self.chapter_offset})")
