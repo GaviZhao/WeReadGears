@@ -335,6 +335,19 @@ class ApiReader:
                         self.total_reads += 1
                         last_time = int(time.time())
                         refresh_attempted = False
+                        if random.random() > chapter_continuity:
+                            bid, cid, ci, bname, _ = self._select_book_and_chapter()
+                            if bid and bid != self.last_book_id:
+                                self.last_book_id = bid
+                                self.last_book_name = bname or self.last_book_name
+                                self.books_read += 1
+                                logger.info(f"切换书籍: {self.last_book_name or bid}")
+                            elif ci is not None:
+                                self.last_chapter_index = ci
+                                logger.debug(f"推进章节: ci={ci}")
+                            else:
+                                self.last_chapter_index = (self.last_chapter_index or 0) + 1
+                                logger.debug(f"推进章节索引: ci={self.last_chapter_index}")
                     else:
                         if self._needs_refresh and not refresh_attempted:
                             refresh_attempted = True
