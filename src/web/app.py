@@ -136,7 +136,7 @@ async def index(request: Request):
         "reading": {
             "target_duration": reading_config.get("target_duration", "60-90"),
             "mode": reading_config.get("mode", "smart_random"),
-            "reading_interval": reading_config.get("reading_interval", "30-48"),
+            "reading_interval": reading_config.get("reading_interval", "10-20"),
             "books": reading_config.get("books", [])
         },
         "schedule": {

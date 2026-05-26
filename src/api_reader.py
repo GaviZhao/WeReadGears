@@ -266,15 +266,15 @@ class ApiReader:
         target_seconds = target_minutes * 60
 
         mode = reading_config.get("mode", "smart_random")
-        interval_str = reading_config.get("reading_interval", "30-48")
+        interval_str = reading_config.get("reading_interval", "10-20")
         if isinstance(interval_str, str) and "-" in interval_str:
             parts = interval_str.split("-")
             interval_min, interval_max = int(parts[0]), int(parts[1])
         else:
             interval_min = interval_max = int(interval_str)
 
-        break_prob = reading_config.get("break_probability", 0.15)
-        break_str = reading_config.get("break_duration", "30-180")
+        break_prob = reading_config.get("break_probability", 0.02)
+        break_str = reading_config.get("break_duration", "2-10")
         if isinstance(break_str, str) and "-" in break_str:
             parts = break_str.split("-")
             break_min, break_max = int(parts[0]), int(parts[1])

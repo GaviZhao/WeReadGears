@@ -11,11 +11,11 @@ app:
 reading:
   target_duration: "60-90"       # 目标阅读时长（分钟，范围格式）
   mode: "smart_random"           # smart_random | sequential | pure_random
-  reading_interval: "30-48"      # 每次操作间隔（秒）
+  reading_interval: "10-20"     # 每次操作间隔（秒）
   book_continuity: 0.8           # 继续当前书籍概率 (0-1)
   chapter_continuity: 0.7        # 继续当前章节概率 (0-1)
-  break_probability: 0.15        # 中途休息概率 (0-1)
-  break_duration: "30-180"       # 休息时长（秒）
+  break_probability: 0.02        # 中途休息概率 (0-1)
+  break_duration: "2-10"          # 休息时长（秒）
   books: []                      # 指定书籍列表（空则随机）
 
 # 定时任务
