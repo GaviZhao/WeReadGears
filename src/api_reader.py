@@ -184,7 +184,7 @@ class ApiReader:
         """刷新cookie（同 weread-bot _refresh_cookie）"""
         logger.info("刷新cookie...")
         try:
-            cookie_data = {"rq": "/web/book/read", "ql": "false" if not config.get("hack.cookie_refresh_ql", False) else "true"}
+            cookie_data = {"rq": "%2Fweb%2Fbook%2Fread", "ql": config.get("hack.cookie_refresh_ql", False)}
             response, _ = await self.http_client.post(
                 self.RENEW_URL,
                 headers=self.headers,
@@ -338,8 +338,8 @@ class ApiReader:
                     else:
                         if self._needs_refresh and not refresh_attempted:
                             refresh_attempted = True
-                            self._needs_refresh = False
-                            if await self._refresh_cookie():
+                            refresh_ok = await self._refresh_cookie()
+                            if refresh_ok:
                                 logger.info("cookie刷新后重试请求...")
                                 response, _ = await self.http_client.post(
                                     self.READ_URL,
@@ -350,6 +350,14 @@ class ApiReader:
                                 if self._check_response(response):
                                     self.total_reads += 1
                                     last_time = int(time.time())
+                                else:
+                                    self.failed_reads += 1
+                                    self._needs_refresh = False
+                                    logger.warning(f"API重试失败: {str(response.json())[:100]}")
+                            else:
+                                self.failed_reads += 1
+                                self._needs_refresh = False
+                                logger.warning("Cookie刷新失败，记录为失败请求")
 
                 except Exception as e:
                     self.failed_reads += 1
