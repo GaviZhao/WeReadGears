@@ -53,6 +53,7 @@ class ApiReader:
 
     READ_URL = "https://weread.qq.com/web/book/read"
     RENEW_URL = "https://weread.qq.com/web/login/renewal"
+    FIX_SYNCKEY_URL = "https://weread.qq.com/web/book/chapterInfos"
 
     DEFAULT_HEADERS = {
         "accept": "application/json, text/plain, */*",
@@ -79,7 +80,6 @@ class ApiReader:
         self.last_book_name = ""
         self.last_chapter_id = ""
         self.last_chapter_index: Optional[int] = None
-        self.chapter_offset = 0
         self._last_progress_time = 0
         self._progress_file = Path("shared/credentials/reading_progress.json")
         self._load_progress()
@@ -105,8 +105,7 @@ class ApiReader:
                 self.last_book_name = data.get("last_book_name", "")
                 self.last_chapter_id = data.get("last_chapter_id", "")
                 self.last_chapter_index = data.get("last_chapter_index")
-                self.chapter_offset = data.get("chapter_offset", 0)
-                logger.info(f"恢复阅读进度: {self.last_book_name or self.last_book_id} ci={self.last_chapter_index} co={self.chapter_offset}")
+                logger.info(f"恢复阅读进度: {self.last_book_name or self.last_book_id} ci={self.last_chapter_index}")
         except Exception as e:
             logger.warning(f"恢复阅读进度失败: {e}")
 
@@ -119,7 +118,6 @@ class ApiReader:
                 "last_book_name": self.last_book_name,
                 "last_chapter_id": self.last_chapter_id,
                 "last_chapter_index": self.last_chapter_index,
-                "chapter_offset": self.chapter_offset,
             }, ensure_ascii=False), encoding="utf-8")
         except Exception as e:
             logger.warning(f"保存阅读进度失败: {e}")
@@ -193,7 +191,6 @@ class ApiReader:
     def _prepare_payload(self, last_time: int):
         """准备单次阅读请求的payload（同 weread-bot _prepare_read_payload）"""
         self.data.pop("s", None)
-        self.data.pop("sm", None)
 
         if self.last_book_id:
             self.data["b"] = self.last_book_id
@@ -202,14 +199,11 @@ class ApiReader:
         if self.last_chapter_index is not None:
             self.data["ci"] = self.last_chapter_index
 
-        self.data["co"] = self.chapter_offset
-        self.data["pr"] = self.chapter_offset
-
         self._apply_user_identity()
 
         current_time = int(time.time())
         self.data["ct"] = current_time
-        self.data["rt"] = max(1, current_time - last_time) if last_time else 0
+        self.data["rt"] = current_time - last_time
         self.data["ts"] = int(current_time * 1000) + random.randint(0, 1000)
         self.data["rn"] = random.randint(0, 1000)
         self.data["sg"] = hashlib.sha256(f"{self.data['ts']}{self.data['rn']}{KEY}".encode()).hexdigest()
@@ -249,7 +243,7 @@ class ApiReader:
                 return p.split("=", 1)[1]
         return None
 
-    def _check_response(self, response: httpx.Response) -> bool:
+    async def _check_response(self, response: httpx.Response) -> bool:
         """检查响应（同 weread-bot _handle_protocol_response）"""
         if response.status_code != 200:
             logger.warning(f"API非200响应: {response.status_code}")
@@ -260,14 +254,29 @@ class ApiReader:
             logger.warning(f"API响应JSON解析失败: {response.text[:200]}")
             return False
 
-        if data.get("succ") == 1:
-            if "synckey" not in data:
-                logger.warning(f"API响应缺少synckey: {str(data)[:200]}")
+        if "succ" in data and "synckey" in data:
             return True
+
+        if "succ" in data:
+            logger.warning(f"API响应缺少synckey，尝试修复: {str(data)[:200]}")
+            await self._fix_no_synckey()
+            return False
 
         logger.warning(f"API响应无succ字段，触发cookie刷新: keys={list(data.keys())}")
         self._needs_refresh = True
         return False
+
+    async def _fix_no_synckey(self):
+        """修复synckey问题（同 weread-bot _fix_no_synckey）"""
+        try:
+            await self.http_client.post(
+                self.FIX_SYNCKEY_URL,
+                headers=self.headers,
+                cookies=self.cookies,
+                json_data={"bookIds": ["3300060341"]},
+            )
+        except Exception as e:
+            logger.warning(f"synckey修复失败: {e}")
 
     async def start_reading(self, on_progress=None) -> ReadingResult:
         if self.is_reading:
@@ -286,11 +295,13 @@ class ApiReader:
         self.errors = {}
         self._last_progress_time = 0
         self._needs_refresh = False
-        self.chapter_offset = 0
         self._last_logged_book = ""
         self._last_logged_chapter = ""
 
         self._fail_reason = ""
+
+        if not await self._refresh_cookie():
+            logger.warning("启动时Cookie刷新失败，尝试继续")
 
         reading_config = config.get("reading", {})
         target_duration_str = reading_config.get("target_duration", "60-90")
@@ -318,7 +329,6 @@ class ApiReader:
             break_min = break_max = int(break_str)
 
         book_continuity = reading_config.get("book_continuity", 0.8)
-        chapter_continuity = reading_config.get("chapter_continuity", 0.7)
 
         logger.info(f"API 阅读开始，目标时长: {target_minutes} 分钟")
 
@@ -367,34 +377,10 @@ class ApiReader:
                         json_data=self.data,
                     )
 
-                    if self._check_response(response):
+                    if await self._check_response(response):
                         self.total_reads += 1
                         last_time = int(time.time())
                         refresh_attempted = False
-                        self.chapter_offset += random.randint(200, 500)
-                        if self.chapter_offset > 5000:
-                            self.chapter_offset = 0
-                            self.last_chapter_index = (self.last_chapter_index or 0) + 1
-                            if self.last_chapter_index > 200:
-                                self.last_chapter_index = 0
-                            self._save_progress()
-                            logger.info(f"章节推进: ci={self.last_chapter_index}")
-                        elif random.random() > chapter_continuity:
-                            bid, cid, ci, bname, _ = self._select_book_and_chapter()
-                            if bid and bid != self.last_book_id:
-                                self.last_book_id = bid
-                                self.last_book_name = bname or self.last_book_name
-                                self.chapter_offset = 0
-                                self.last_chapter_index = ci if ci is not None else 0
-                                self.books_read += 1
-                                self._save_progress()
-                                logger.info(f"切换书籍: {self.last_book_name or bid}")
-                            else:
-                                self.last_chapter_index = (self.last_chapter_index or 0) + 1
-                                if self.last_chapter_index > 200:
-                                    self.last_chapter_index = 0
-                                self._save_progress()
-                                logger.debug(f"推进章节: ci={self.last_chapter_index}")
                     else:
                         if self._needs_refresh and not refresh_attempted:
                             refresh_attempted = True
@@ -407,7 +393,7 @@ class ApiReader:
                                     cookies=self.cookies,
                                     json_data=self.data,
                                 )
-                                if self._check_response(response):
+                                if await self._check_response(response):
                                     self.total_reads += 1
                                     last_time = int(time.time())
                                 else:
