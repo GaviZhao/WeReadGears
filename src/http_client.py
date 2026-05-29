@@ -124,7 +124,8 @@ class HttpClient:
                 elapsed = time.time() - start_time
                 self.request_times.append(elapsed)
                 last_error = e
-                logger.warning(f"请求异常 ({attempt + 1}/{self.retry_times}): {e}")
+                import traceback
+                logger.warning(f"请求异常 ({attempt + 1}/{self.retry_times}): {e}\n{traceback.format_exc()}")
                 if attempt < self.retry_times - 1:
                     await asyncio.sleep(self._get_random_delay())
 
