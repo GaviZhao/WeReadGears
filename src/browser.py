@@ -66,9 +66,16 @@ class BrowserManager:
             )
 
             storage_state = None
-            cookies = cookie_manager.load()
-            if cookies:
-                storage_state = {"cookies": cookies}
+            valid_users = cookie_manager.get_all_valid_users()
+            if valid_users:
+                cookies = cookie_manager.load(valid_users[0])
+                if cookies:
+                    storage_state = {"cookies": cookies}
+                    logger.info(f"加载用户 {valid_users[0]} 的 cookies ({len(cookies)} 个)")
+            if not storage_state:
+                cookies = cookie_manager.load()
+                if cookies:
+                    storage_state = {"cookies": cookies}
 
             default_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             self.context = await self.browser.new_context(
