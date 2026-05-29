@@ -145,8 +145,13 @@ class BrowserManager:
 
         return captured
 
-    async def capture_and_save_curl(self, user_name: str = "default") -> bool:
-        """捕获完整curl命令并保存到文件，然后解析文件填入凭证"""
+    async def capture_and_save_curl(self, user_name: str = "default", retry: int = 1) -> bool:
+        """捕获完整curl命令并保存到文件，然后解析文件填入凭证
+        
+        Args:
+            user_name: 用户名
+            retry: 解析失败时自动重试捕获的次数
+        """
         capt = await self.capture_api_params()
         if not capt.get("ps") or not capt.get("pc"):
             logger.warning("捕获curl失败: ps/pc为空")
@@ -182,28 +187,62 @@ class BrowserManager:
             f.write(curl_text)
         logger.info(f"完整curl已保存到 {curl_file}")
 
-        from src.curl_parser import parse_curl_text
-        parsed = parse_curl_text(curl_text)
+        from src.curl_parser import parse_curl_with_fallback, validate_parsed_data
+        parsed, was_valid, missing, errors = parse_curl_with_fallback(curl_text, capt, strict=True)
+        
         cp = parsed.get("payload", {})
         ch = parsed.get("headers", {})
         cc = parsed.get("cookies", {})
-        logger.info(f"curl解析结果: appId={cp.get('appId','')[:20]} ps={cp.get('ps','')[:16]}... 共{len(ch)}个header {len(cc)}个cookie")
+        
+        logger.info(f"curl解析结果: appId={cp.get('appId','')[:20] if cp.get('appId') else 'MISSING'} "
+                   f"ps={cp.get('ps','')[:16] if cp.get('ps') else 'MISSING'}... "
+                   f"共{len(ch)}个header {len(cc)}个cookie")
+        if errors:
+            logger.warning(f"解析警告: {'; '.join(errors)}")
+        
+        if not was_valid and missing:
+            logger.warning(f"首次解析缺失字段: {missing}，尝试重新捕获...")
+            if retry > 0:
+                await asyncio.sleep(2)
+                capt_retry = await self.capture_api_params()
+                if capt_retry.get("ps") and capt_retry.get("pc"):
+                    capt = capt_retry
+                    logger.info("重新捕获成功，使用新数据")
 
         cred = credential_manager.load(user_name)
         if not cred:
             from src.api_reader import UserCredentials
             cred = UserCredentials(user_name=user_name)
+        
         cred.user_info["captured_appId"] = cp.get("appId", "")
         cred.user_info["captured_payload"] = cp
         cred.user_info["captured_headers"] = {k: v for k, v in ch.items() if k.lower() not in ("cookie", "host", "content-length", "connection", "https") and ":" not in k}
         cred.user_info["captured_cookies"] = cc
+        
         if cc.get("wr_skey"):
             cred.wr_skey = cc["wr_skey"]
+        elif capt.get("_raw_cookies"):
+            for c in capt["_raw_cookies"]:
+                if c.get("name") == "wr_skey":
+                    cred.wr_skey = c.get("value", "")
+                    break
         if cc.get("wr_vid"):
             cred.wr_vid = cc["wr_vid"]
+        elif capt.get("_raw_cookies"):
+            for c in capt["_raw_cookies"]:
+                if c.get("name") == "wr_vid":
+                    cred.wr_vid = c.get("value", "")
+                    break
+        
+        is_valid, valid_missing, _ = validate_parsed_data(
+            {"payload": cp, "cookies": cc, "headers": ch}, strict=True
+        )
+        if not is_valid:
+            logger.error(f"凭证字段仍然缺失: {valid_missing}，保存可能不完整")
+        
         credential_manager.save(cred)
 
-        logger.info(f"curl数据已保存到凭证: appId={cp.get('appId','')[:20]} ps={cp.get('ps','')[:16]}...")
+        logger.info(f"curl数据已保存到凭证: appId={cp.get('appId','')[:20] if cp.get('appId') else 'MISSING'} ps={cp.get('ps','')[:16] if cp.get('ps') else 'MISSING'}...")
         return True
 
     async def start_login_with_qr(self, user_name: str = "default") -> Optional[bytes]:
