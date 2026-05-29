@@ -7,41 +7,45 @@ from datetime import datetime
 from src.utils.logger import logger
 from src.config import config
 from src.api_reader import UserCredentials
+from src.user_data_manager import user_data_manager
 
 
 class CredentialManager:
-    """凭证管理器"""
+    """凭证管理器 - 委托给UserDataManager处理"""
 
     def __init__(self):
-        self.credentials_dir = Path("shared/credentials")
-        self.credentials_dir.mkdir(parents=True, exist_ok=True)
-
-    def _get_user_file(self, user_name: str) -> Path:
-        """获取用户凭证文件路径"""
-        safe_name = "".join(c if c.isalnum() else "_" for c in user_name)
-        return self.credentials_dir / f"{safe_name}.json"
+        pass
 
     def save(self, credentials: UserCredentials) -> bool:
         """保存用户凭证"""
-        try:
-            user_file = self._get_user_file(credentials.user_name)
-            data = {
-                "user_id": credentials.user_id,
-                "user_name": credentials.user_name,
-                "wr_skey": credentials.wr_skey,
-                "wr_vid": credentials.wr_vid,
-                "sign_key": credentials.sign_key,
-                "user_info": credentials.user_info,
-                "expires_at": credentials.expires_at,
-                "saved_at": datetime.now().isoformat(),
-            }
-            with open(user_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            logger.info(f"凭证已保存: {credentials.user_name}")
-            return True
-        except Exception as e:
-            logger.error(f"保存凭证失败: {e}")
-            return False
+        return user_data_manager.save_credentials(credentials, credentials.user_name)
+
+    def load(self, user_name: str) -> Optional[UserCredentials]:
+        """加载用户凭证"""
+        return user_data_manager.load_credentials(user_name)
+
+    def is_valid(self, user_name: str) -> bool:
+        """检查凭证是否有效"""
+        return user_data_manager.is_valid(user_name)
+
+    def delete(self, user_name: str) -> bool:
+        """删除用户凭证"""
+        return user_data_manager.delete_user(user_name)
+
+    def get_all_users(self) -> List[str]:
+        """获取所有用户"""
+        return user_data_manager.get_all_users()
+
+    def get_expiry_info(self, user_name: str) -> Optional[Dict[str, str]]:
+        """获取过期信息"""
+        cred = self.load(user_name)
+        if not cred:
+            return None
+        return {
+            "saved_at": cred.saved_at or "未知",
+            "expires_at": cred.expires_at or "未知",
+            "user_info": str(cred.user_info),
+        }
 
     def load(self, user_name: str) -> Optional[UserCredentials]:
         """加载用户凭证"""

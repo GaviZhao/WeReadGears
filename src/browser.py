@@ -25,6 +25,7 @@ class BrowserManager:
         self._current_user: str = "default"
         self.last_captured = {}
         self.last_captured_at = ""
+        self._pending_login_data: Optional[Dict[str, Any]] = None
 
     def get_captured_info(self) -> Dict[str, Any]:
         return {
@@ -455,18 +456,26 @@ class BrowserManager:
 
                 if has_key:
                     logger.info(f"检测到 wr_skey cookie，登录成功，URL: {url}")
-                    cookie_manager.save(cookies)
-                    await self._extract_and_save_credentials(page, cookies, user_name)
-                    self._login_status = "success"
                     capt = await self.capture_api_params()
-                    if capt.get("appId"):
-                        cred = credential_manager.load(user_name)
-                        if cred:
-                            cred.sign_key = capt.get("sg", cred.sign_key)
-                            cred.user_info["captured_appId"] = capt.get("appId", "")
-                            cred.user_info["captured_payload"] = capt.get("full_payload", {})
-                            credential_manager.save(cred)
-                            logger.info(f"扫码登录-已保存捕获的API参数: appId={capt['appId'][:20]} book={capt.get('b','')[:20]}")
+                    self._pending_login_data = {
+                        "cookies": cookies,
+                        "user_info": {},
+                        "captured": capt,
+                        "page_url": url,
+                    }
+                    try:
+                        user_info_str = await page.evaluate("""() => {
+                            try {
+                                const data = window.__INITIAL_STATE__ || {};
+                                if (data.userInfo) return JSON.stringify(data.userInfo);
+                                return '{}';
+                            } catch(e) { return '{}'; }
+                        }""")
+                        if user_info_str and user_info_str != '{}':
+                            self._pending_login_data["user_info"] = json.loads(user_info_str)
+                    except Exception as e:
+                        logger.warning(f"提取用户信息失败: {e}")
+                    self._login_status = "need_username"
                     await page.close()
                     return
 
@@ -507,6 +516,49 @@ class BrowserManager:
     def reset_login_status(self):
         self._login_status = "idle"
         self._login_error = ""
+        self._pending_login_data = None
+
+    async def complete_login_with_username(self, user_name: str) -> dict:
+        """使用用户名完成登录保存"""
+        if not self._pending_login_data:
+            return {"status": "error", "message": "没有待保存的登录数据"}
+        try:
+            from src.user_data_manager import user_data_manager
+            data = self._pending_login_data
+            cookies = data.get("cookies", [])
+            user_info = data.get("user_info", {})
+            capt = data.get("captured", {})
+            cookie_dict = {c["name"]: c.get("value", "") for c in cookies}
+            wr_skey = cookie_dict.get("wr_skey", "")
+            wr_vid = cookie_dict.get("wr_vid", "")
+            sign_key = capt.get("sg", "") or "3c5c8717f3daf09iop3423zafeqoi"
+            credentials = UserCredentials(
+                user_id=user_info.get("userId", "") or user_info.get("user_id", "") or wr_vid,
+                user_name=user_name,
+                wr_skey=wr_skey,
+                wr_vid=wr_vid,
+                sign_key=sign_key,
+                user_info=user_info,
+                expires_at=(datetime.now() + timedelta(days=7)).isoformat()
+            )
+            if capt.get("appId"):
+                credentials.user_info["captured_appId"] = capt.get("appId", "")
+                credentials.user_info["captured_payload"] = capt.get("full_payload", {})
+            user_data_manager.ensure_user_dir(user_name)
+            user_data_manager.save_credentials(credentials, user_name)
+            user_data_manager.save_cookies(cookies, user_name)
+            if capt.get("full_curl"):
+                user_data_manager.save_curl(capt.get("full_curl"), user_name)
+            self._current_user = user_name
+            self._login_status = "success"
+            self._pending_login_data = None
+            logger.info(f"登录完成，用户: {user_name}")
+            return {"status": "ok", "user": user_name}
+        except Exception as e:
+            logger.error(f"完成登录失败: {e}")
+            self._login_error = str(e)
+            self._login_status = "failed"
+            return {"status": "error", "message": str(e)}
 
     async def get_preview_screenshot(self) -> Optional[bytes]:
         try:

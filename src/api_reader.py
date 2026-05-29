@@ -425,6 +425,11 @@ class ApiReader:
                 self.elapsed_seconds = int((datetime.now() - self.start_time).total_seconds())
                 active_seconds = self.elapsed_seconds - self.total_break_seconds
 
+                if self.should_stop:
+                    if self._fail_reason:
+                        logger.warning(f"API异常终止: {self._fail_reason}")
+                    break
+
                 if active_seconds >= target_seconds:
                     break
 

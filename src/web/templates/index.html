@@ -487,7 +487,7 @@
                 <div class="card-title">状态</div>
                 <div class="status-grid" style="grid-template-columns:1fr 1fr">
                     <div class="status-item"><div class="label">进程</div><div class="value success">正常</div></div>
-                    <div class="status-item"><div class="label">登录</div><div class="value {{ 'success' if cookies_valid else 'error' }}" id="loginStatus">{{ '已登录' if cookies_valid else '未登录' }}</div></div>
+                    <div class="status-item"><div class="label">登录</div><div class="value {{ 'success' if cookies_valid else 'error' }}" id="loginStatus">{{ '已登录' + (': ' + logged_in_user if logged_in_user else '') if cookies_valid else '未登录' }}</div></div>
                 </div>
                 <div class="status-btn-group">
                     <button type="button" class="status-btn status-btn-primary" id="btnRead" onclick="triggerReading()">立即阅读</button>
@@ -540,6 +540,20 @@
         <div class="btn-group" style="justify-content:center;margin-top:16px">
             <button type="button" class="btn btn-secondary" onclick="closeLoginModal()">关闭</button>
             <button type="button" class="btn btn-primary" id="btnRetryLogin" style="display:none" onclick="startQRLogin()">重试</button>
+        </div>
+    </div>
+</div>
+
+<!-- 用户名输入弹窗 -->
+<div class="modal-overlay" id="usernameModal">
+    <div class="modal-box">
+        <h2>设置用户名</h2>
+        <p style="color:#64748b;margin-bottom:16px">请为您的账号设置一个名称（用于多账号切换）</p>
+        <input type="text" id="inputUsername" class="input-field" placeholder="请输入用户名" style="width:100%;padding:12px;border-radius:8px;border:1px solid rgba(99,102,241,.3);background:rgba(255,255,255,.05);color:#e2e8f0;font-size:1rem;outline:none;box-sizing:border-box">
+        <div id="usernameError" style="color:#ef4444;font-size:.85rem;margin-top:8px;display:none"></div>
+        <div class="btn-group" style="justify-content:center;margin-top:20px">
+            <button type="button" class="btn btn-secondary" onclick="closeUsernameModal()">取消</button>
+            <button type="button" class="btn btn-primary" id="btnConfirmUsername" onclick="confirmUsername()">确认</button>
         </div>
     </div>
 </div>
@@ -800,7 +814,12 @@ async function startQRLogin() {
         qrPoll = setInterval(async function() {
             try {
                 var sr = await fetch('/login/status'); var ss = await sr.json();
-                if (ss.status === 'success') {
+                if (ss.status === 'need_username') {
+                    statusText.innerHTML = '登录成功'; statusText.className = 'login-st success';
+                    clearInterval(qrPoll); qrPoll = null;
+                    closeLoginModal();
+                    openUsernameModal();
+                } else if (ss.status === 'success') {
                     statusText.innerHTML = '登录成功'; statusText.className = 'login-st success';
                     loginStatus.textContent = '已登录'; loginStatus.className = 'value success';
                     clearInterval(qrPoll); qrPoll = null;
@@ -817,6 +836,35 @@ async function startQRLogin() {
     }
 }
 window.startQRLogin = startQRLogin;
+
+function openUsernameModal() { document.getElementById('usernameModal').classList.add('active'); document.getElementById('inputUsername').focus(); }
+function closeUsernameModal() { document.getElementById('usernameModal').classList.remove('active'); document.getElementById('inputUsername').value = ''; document.getElementById('usernameError').style.display = 'none'; }
+window.openUsernameModal = openUsernameModal;
+window.closeUsernameModal = closeUsernameModal;
+
+async function confirmUsername() {
+    var input = document.getElementById('inputUsername');
+    var errorDiv = document.getElementById('usernameError');
+    var btn = document.getElementById('btnConfirmUsername');
+    var username = input.value.trim();
+    if (!username) { errorDiv.textContent = '用户名不能为空'; errorDiv.style.display = 'block'; return; }
+    btn.disabled = true; btn.innerHTML = '<span class="spinner" style="width:16px;height:16px;margin:0;border-width:2px"></span>';
+    try {
+        var r = await fetch('/login/complete-with-username', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({user_name: username})});
+        var d = await r.json();
+        if (d.status === 'ok') {
+            closeUsernameModal();
+            showToast('登录成功: ' + d.user, 'success');
+            var loginStatus = document.getElementById('loginStatus');
+            if (loginStatus) { loginStatus.textContent = '已登录: ' + d.user; }
+            setTimeout(function() { location.reload(); }, 1500);
+        } else {
+            errorDiv.textContent = d.message || '设置失败'; errorDiv.style.display = 'block';
+        }
+    } catch(e) { errorDiv.textContent = '网络错误'; errorDiv.style.display = 'block'; }
+    finally { btn.disabled = false; btn.innerHTML = '确认'; }
+}
+window.confirmUsername = confirmUsername;
 
 // === 阅读触发 ===
 async function triggerReading() {

@@ -31,6 +31,10 @@ from src.session_manager import session_manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Web 服务启动")
+    from src.user_data_manager import user_data_manager
+    migrated = user_data_manager.migrate_from_old_structure()
+    if migrated:
+        logger.info(f"已迁移用户数据: {migrated}")
     await notifier.notify_startup()
     yield
     logger.info("Web 服务关闭")
@@ -130,6 +134,8 @@ async def index(request: Request):
 
     users = config.get_users()
     statistics = history_manager.get_statistics()
+    browser_status = browser_manager.get_login_status()
+    logged_in_user = browser_status.get("user") if browser_status.get("status") == "success" else None
 
     return templates.TemplateResponse("index.html", {
         "request": request,
@@ -167,6 +173,7 @@ async def index(request: Request):
             "max_entries": history_config.get("max_entries", 50)
         },
         "cookies_valid": cookies_valid,
+        "logged_in_user": logged_in_user,
         "cookies_info": cookies_info,
         "reader_status": reader.get_status(),
         "scheduler_status": scheduler.get_status(),
@@ -278,7 +285,11 @@ async def save_config(request: Request):
 async def trigger_reading():
     if reader.is_reading:
         return JSONResponse({"status": "error", "message": "阅读任务正在进行中"})
+    duration = config.get("reading.target_duration", "30-60")
+    books = config.get("reading.books", [])
+    book_name = books[0].get("name") if books else None
     asyncio.create_task(reader.start_reading())
+    await notifier.notify_reading_start(book_name=book_name, duration=duration)
     return JSONResponse({"status": "ok", "message": "阅读任务已启动"})
 
 
@@ -288,13 +299,20 @@ async def trigger_api_reading():
         return JSONResponse({"status": "error", "message": "阅读任务正在进行中"})
 
     async def run_with_fallback():
-        results = await session_manager.run_multi_user()
-        fail_reason = ""
-        for r in (results or []):
-            rr = r.result
-            if rr and rr.errors and rr.errors.get("fail_reason"):
-                fail_reason = rr.errors["fail_reason"]
-                break
+        task = asyncio.create_task(session_manager.run_multi_user())
+        while not task.done():
+            await asyncio.sleep(2)
+            if session_manager._has_failed:
+                logger.warning(f"API异常检测到，立即切换模拟模式: {session_manager._fail_reason}")
+                session_manager.stop()
+                await notifier.send(
+                    f"API请求异常: {session_manager._fail_reason}\n已自动切换到模拟模式",
+                    NotificationType.READING_FAILED
+                )
+                await reader.start_reading()
+                return
+        results = task.result()
+        fail_reason = session_manager._fail_reason
         if fail_reason:
             logger.warning(f"API异常，切换模拟模式: {fail_reason}")
             await notifier.send(
@@ -550,7 +568,22 @@ async def login_start():
 
 @app.get("/login/status")
 async def login_status():
-    return JSONResponse(browser_manager.get_login_status())
+    status = browser_manager.get_login_status()
+    if status["status"] == "need_username":
+        return JSONResponse({"status": "need_username", "message": "请输入用户名"})
+    return JSONResponse(status)
+
+
+@app.post("/login/complete-with-username")
+async def login_complete_with_username(request: Request):
+    data = await request.json()
+    user_name = data.get("user_name", "").strip()
+    if not user_name:
+        return JSONResponse({"status": "error", "message": "用户名不能为空"})
+    result = await browser_manager.complete_login_with_username(user_name)
+    if result["status"] == "ok":
+        config.add_user({"name": user_name, "display_name": user_name, "books": [], "reading_overrides": {}})
+    return JSONResponse(result)
 
 
 @app.get("/login/debug")

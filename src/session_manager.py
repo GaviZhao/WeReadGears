@@ -85,6 +85,8 @@ class SessionManager:
         self._progress = {}
         self._logs = deque(maxlen=200)
         self._active_session: Optional[UserSession] = None
+        self._has_failed = False
+        self._fail_reason = ""
 
     def get_progress(self) -> Dict[str, Any]:
         return self._progress
@@ -124,6 +126,11 @@ class SessionManager:
         log_msg = data.get("log", "")
         if log_msg:
             self.add_log(log_msg)
+        if self._active_session and self._active_session.api_reader:
+            api = self._active_session.api_reader
+            if api.should_stop and api._fail_reason:
+                self._has_failed = True
+                self._fail_reason = api._fail_reason
 
     async def _run_user_with_semaphore(self, user_config: Dict[str, Any]) -> SessionResult:
         """使用信号量运行用户会话"""
@@ -147,6 +154,8 @@ class SessionManager:
         """运行多用户会话"""
         self._logs = deque(maxlen=200)
         self._is_running = True
+        self._has_failed = False
+        self._fail_reason = ""
         users = config.get_users()
         if not users:
             user_name = "default"

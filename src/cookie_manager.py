@@ -1,11 +1,12 @@
 import os
 import json
 from pathlib import Path
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, List
 from datetime import datetime, timedelta
 
 from src.utils.logger import logger
 from src.config import config
+from src.user_data_manager import user_data_manager
 
 
 class CookieManager:
@@ -17,7 +18,9 @@ class CookieManager:
     def set_notify_callback(self, callback: Callable):
         self.notify_callback = callback
 
-    def save(self, cookies: list, user_info: Dict[str, Any] = None):
+    def save(self, cookies: list, user_name: str = None, user_info: Dict[str, Any] = None):
+        if user_name:
+            return user_data_manager.save_cookies(cookies, user_name)
         data = {
             "cookies": cookies,
             "user_info": user_info or {},
@@ -28,26 +31,35 @@ class CookieManager:
             json.dump(data, f, ensure_ascii=False, indent=2)
         logger.info(f"Cookies 已保存，有效期至 {data['expires_at']}")
 
-    def load(self) -> Optional[list]:
+    def load(self, user_name: str = None) -> Optional[list]:
+        if user_name:
+            return user_data_manager.load_cookies(user_name)
         if not self.cookie_file.exists():
             return None
-
         try:
             with open(self.cookie_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-
             expires_at = datetime.fromisoformat(data.get("expires_at", datetime.now().isoformat()))
             if datetime.now() > expires_at:
                 logger.warning("Cookies 已过期")
                 return None
-
             return data.get("cookies")
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             logger.error(f"Cookies 解析失败: {e}")
             return None
 
-    def clear(self):
+    def clear(self, user_name: str = None):
         """清除cookies文件"""
+        if user_name:
+            try:
+                user_dir = user_data_manager.get_user_dir(user_name)
+                cookies_file = user_dir / "cookies.json"
+                if cookies_file.exists():
+                    cookies_file.unlink()
+                    logger.info(f"用户Cookies已清除: {user_name}")
+            except Exception as e:
+                logger.error(f"清除用户Cookies失败: {e}")
+            return
         try:
             if self.cookie_file.exists():
                 self.cookie_file.unlink()
@@ -55,19 +67,48 @@ class CookieManager:
         except Exception as e:
             logger.error(f"清除Cookies失败: {e}")
 
-    def is_valid(self) -> bool:
+    def is_valid(self, user_name: str = None) -> bool:
+        if user_name:
+            cookies = self.load(user_name)
+            if not cookies:
+                return False
+            cookie_dict = {c.get("name"): c for c in cookies}
+            required_cookies = ["wr_skey", "wr_vid"]
+            return all(c in cookie_dict for c in required_cookies)
+        users = user_data_manager.get_all_users()
+        if users:
+            for u in users:
+                if self.is_valid(u):
+                    return True
         cookies = self.load()
         if not cookies:
             return False
-
         cookie_dict = {c.get("name"): c for c in cookies}
         required_cookies = ["wr_skey", "wr_vid"]
         return all(c in cookie_dict for c in required_cookies)
 
-    def is_expiring_soon(self, hours: int = 24) -> bool:
+    def is_expiring_soon(self, hours: int = 24, user_name: str = None) -> bool:
+        if user_name:
+            cookies = self.load(user_name)
+            if not cookies:
+                return False
+            cookie_dict = {c.get("name"): c for c in cookies}
+            required_cookies = ["wr_skey", "wr_vid"]
+            if not all(c in cookie_dict for c in required_cookies):
+                return False
+            try:
+                user_dir = user_data_manager.get_user_dir(user_name)
+                cookies_file = user_dir / "cookies.json"
+                if not cookies_file.exists():
+                    return False
+                with open(cookies_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                expires_at = datetime.fromisoformat(data.get("expires_at", datetime.now().isoformat()))
+                return datetime.now() + timedelta(hours=hours) > expires_at
+            except (json.JSONDecodeError, KeyError, ValueError):
+                return False
         if not self.cookie_file.exists():
             return False
-
         try:
             with open(self.cookie_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -76,47 +117,32 @@ class CookieManager:
         except (json.JSONDecodeError, KeyError, ValueError):
             return False
 
-    async def validate_with_request(self, page) -> bool:
-        try:
-            cookies = self.load()
+    def get_all_valid_users(self) -> List[str]:
+        """获取所有有效用户"""
+        users = user_data_manager.get_all_users()
+        return [u for u in users if self.is_valid(u)]
+
+    def get_expiry_info(self, user_name: str = None) -> Optional[Dict[str, str]]:
+        if user_name:
+            cookies = self.load(user_name)
             if not cookies:
-                return False
-
-            cookie_dict = {c.get("name"): c for c in cookies}
-            if "wr_skey" not in cookie_dict or "wr_vid" not in cookie_dict:
-                logger.warning("Cookies 缺少必需的认证字段")
-                return False
-
-            response = await page.request.get("https://weread.qq.com/", timeout=10)
-            if response.status_code == 200:
-                logger.info("Cookies 验证成功")
-                return True
-            else:
-                logger.warning(f"Cookies 验证失败，状态码: {response.status_code}")
-                return False
-        except Exception as e:
-            logger.error(f"Cookies 验证异常: {e}")
-            return False
-
-    async def check_and_notify(self, page) -> bool:
-        is_valid = await self.validate_with_request(page)
-
-        if not is_valid:
-            if self.notify_callback:
-                await self.notify_callback()
-            return False
-
-        if self.is_expiring_soon(hours=24):
-            logger.info("Cookies 即将在24小时内过期")
-            if self.notify_callback:
-                await self.notify_callback(expiring=True)
-
-        return True
-
-    def get_expiry_info(self) -> Optional[Dict[str, str]]:
+                return None
+            try:
+                user_dir = user_data_manager.get_user_dir(user_name)
+                cookies_file = user_dir / "cookies.json"
+                if not cookies_file.exists():
+                    return None
+                with open(cookies_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return {
+                    "saved_at": data.get("saved_at", "未知"),
+                    "expires_at": data.get("expires_at", "未知"),
+                    "user_info": str(data.get("user_info", {}))
+                }
+            except (json.JSONDecodeError, KeyError, ValueError):
+                return None
         if not self.cookie_file.exists():
             return None
-
         try:
             with open(self.cookie_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -128,8 +154,8 @@ class CookieManager:
         except (json.JSONDecodeError, KeyError, ValueError):
             return None
 
-    def get_cookie_dict(self) -> Dict[str, str]:
-        cookies = self.load()
+    def get_cookie_dict(self, user_name: str = None) -> Dict[str, str]:
+        cookies = self.load(user_name)
         if not cookies:
             return {}
         return {c.get("name"): c.get("value") for c in cookies}
