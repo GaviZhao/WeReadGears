@@ -462,9 +462,10 @@ async def shelf_debug():
 
 @app.get("/api/search-debug")
 async def search_debug(q: str = ""):
-    """调试：拦截搜索页所有JSON响应"""
+    """调试：搜索截图+拦截JSON"""
     try:
         from urllib.parse import quote
+        import base64 as b64
         page = await browser_manager.get_page()
         jsons = []
 
@@ -481,14 +482,30 @@ async def search_debug(q: str = ""):
         try:
             keyword = q or "明朝那些事儿"
             await page.goto(f"https://weread.qq.com/web/search/global?keyword={quote(keyword)}", timeout=30000, wait_until="networkidle")
-            await asyncio.sleep(4)
+            await asyncio.sleep(3)
+            screenshot = await page.screenshot(type="png")
+            screenshot_b64 = b64.b64encode(screenshot).decode()
+            init_keys = await page.evaluate("""() => {
+                try {
+                    var st = window.__INITIAL_STATE__ || {};
+                    return Object.keys(st);
+                } catch(e) { return []; }
+            }""")
+            body_text = await page.evaluate("document.body ? document.body.innerText.substring(0, 500) : ''")
         finally:
             try:
                 page.remove_listener("response", on_response)
             except:
                 pass
 
-        return JSONResponse({"url": page.url, "json_responses": jsons})
+        return JSONResponse({
+            "url": page.url,
+            "title": await page.evaluate("document.title"),
+            "init_state_keys": init_keys,
+            "body_preview": body_text,
+            "json_responses": jsons,
+            "screenshot_base64": "data:image/png;base64," + screenshot_b64,
+        })
     except Exception as e:
         return JSONResponse({"error": str(e)})
 
