@@ -429,6 +429,45 @@ async def get_shelf_books():
     return JSONResponse({"books": books})
 
 
+@app.get("/api/shelf-debug")
+async def shelf_debug():
+    """调试：返回书架页面快照"""
+    try:
+        page = await browser_manager.get_page()
+        await page.goto("https://weread.qq.com/web/shelf", timeout=20000, wait_until="networkidle")
+        await asyncio.sleep(3)
+        debug = await page.evaluate("""() => {
+            var info = {};
+            info.url = window.location.href;
+            info.title = document.title;
+            info.hasInitState = typeof __INITIAL_STATE__ !== 'undefined';
+            if (info.hasInitState) {
+                try {
+                    var st = __INITIAL_STATE__;
+                    info.initStateKeys = Object.keys(st);
+                    info.initStateSample = {};
+                    Object.keys(st).forEach(function(k) {
+                        var v = st[k];
+                        if (v && typeof v === 'object') {
+                            info.initStateSample[k] = Object.keys(v).slice(0, 10);
+                        }
+                    });
+                } catch(e) { info.initStateError = e.toString(); }
+            }
+            info.hasNextData = !!document.querySelector('#__NEXT_DATA__');
+            info.linkCount = document.querySelectorAll('a[href*="/web/reader/"]').length;
+            info.cardSamples = [];
+            var links = document.querySelectorAll('a[href*="/web/reader/"]');
+            links.forEach(function(a, i) {
+                if (i < 5) info.cardSamples.push(a.href + ' | ' + a.textContent.trim().substring(0, 80));
+            });
+            return info;
+        }""")
+        return JSONResponse(debug)
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
+
+
 @app.get("/api/search-books")
 async def search_books(q: str = ""):
     if not q.strip():

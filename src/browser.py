@@ -590,44 +590,76 @@ class BrowserManager:
         """从书架页面获取用户所有书籍信息"""
         try:
             page = await self.get_page()
-            await page.goto("https://weread.qq.com/web/shelf", timeout=15000, wait_until="domcontentloaded")
-            await asyncio.sleep(3)
+            await page.goto("https://weread.qq.com/web/shelf", timeout=20000, wait_until="networkidle")
+            await asyncio.sleep(5)
             books = await page.evaluate("""() => {
+                function clean(b) {
+                    var id = b.bookId || b.book_id || '';
+                    var name = b.title || b.name || '';
+                    if (b.book && !name) name = b.book.title || '';
+                    if (!name) name = '';
+                    return { book_id: id, name: name, author: b.author || '' };
+                }
                 try {
-                    const data = window.__INITIAL_STATE__ || {};
-                    if (data.shelf && data.shelf.bookInfoMap) {
-                        const map = data.shelf.bookInfoMap;
-                        return Object.values(map).map(function(b) {
-                            return {
-                                book_id: b.bookId || '',
-                                name: b.title || b.book?.title || '',
-                                author: b.author || b.book?.author || '',
-                                cover: b.cover || b.book?.cover || ''
-                            };
-                        });
+                    var st = window.__INITIAL_STATE__ || {};
+                    var keys = Object.keys(st);
+                    if (keys.length > 0) {
+                        for (var i = 0; i < keys.length; i++) {
+                            var k = keys[i];
+                            var v = st[k];
+                            if (v && typeof v === 'object' && v.bookInfoMap) {
+                                var map = v.bookInfoMap;
+                                return Object.values(map).map(clean);
+                            }
+                            if (v && typeof v === 'object' && v.books) {
+                                if (Array.isArray(v.books)) return v.books.map(clean);
+                                if (v.books.bookInfoMap) return Object.values(v.books.bookInfoMap).map(clean);
+                            }
+                        }
                     }
                 } catch(e) {}
-                const cards = document.querySelectorAll('[data-bookid], .shelfBookItem, .bookItem, [class*="bookCard"]');
+                try {
+                    var rawEl = document.querySelector('#__NEXT_DATA__');
+                    if (rawEl) {
+                        var raw = JSON.parse(rawEl.textContent);
+                        var props = raw?.props?.pageProps;
+                        if (props?.bookInfoMap) return Object.values(props.bookInfoMap).map(clean);
+                        if (props?.shelfData?.books) return props.shelfData.books.map(clean);
+                    }
+                } catch(e) {}
+                var links = document.querySelectorAll('a[href*="/web/reader/"]');
+                if (links.length > 0) {
+                    var seen = {}, result = [];
+                    links.forEach(function(a) {
+                        var m = a.href.match(/\\/web\\/reader\\/([a-zA-Z0-9_]+)/);
+                        if (m && !seen[m[1]]) {
+                            seen[m[1]] = true;
+                            var nameEl = a.querySelector('[class*="title"], [class*="name"]');
+                            result.push({ book_id: m[1], name: (nameEl || a).textContent.trim().substring(0, 60), author: '' });
+                        }
+                    });
+                    if (result.length > 0) return result;
+                }
+                var cards = document.querySelectorAll('[data-bookid], .shelf-detail-item');
                 if (cards.length > 0) {
                     var result = [];
                     cards.forEach(function(c) {
                         var id = c.getAttribute('data-bookid');
-                        if (id) result.push({ book_id: id, name: '', author: '', cover: '' });
+                        if (id && !result.some(function(x){return x.book_id===id})) result.push({ book_id: id, name: '', author: '' });
                     });
                     return result;
                 }
-                var links = document.querySelectorAll('a[href*="/web/reader/"]');
-                var result = [];
-                links.forEach(function(a) {
-                    var m = a.href.match(/\\/web\\/reader\\/([a-zA-Z0-9_]+)/);
-                    if (m) result.push({ book_id: m[1], name: '', author: '', cover: '' });
-                });
-                return result;
+                return [];
             }""")
             if books:
                 logger.info(f"书架获取: {len(books)} 本书")
-                for b in books:
+                for b in books[:5]:
                     logger.info(f"  书名: {b.get('name','')}  ID: {b.get('book_id','')}")
+                if len(books) > 5:
+                    logger.info(f"  ... 共 {len(books)} 本")
+            else:
+                url = page.url
+                logger.warning(f"书架获取为空, 当前URL: {url}")
             return books or []
         except Exception as e:
             logger.warning(f"获取书架失败: {e}")
