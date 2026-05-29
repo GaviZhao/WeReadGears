@@ -742,6 +742,14 @@ async def browser_click(request: Request):
     return JSONResponse({"status": "ok"})
 
 
+@app.post("/browser/back")
+async def browser_back():
+    page = await browser_manager.get_page()
+    await page.go_back()
+    await asyncio.sleep(1)
+    return JSONResponse({"status": "ok", "url": page.url})
+
+
 @app.post("/browser/scroll")
 async def browser_scroll(request: Request):
     data = await request.json()

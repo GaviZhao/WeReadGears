@@ -246,6 +246,7 @@
                         <img id="previewImg" src="" alt="browser preview" style="transform:scale(1) translate(0,0)">
                     </div>
                     <div class="preview-controls">
+                        <button class="zoom-btn" type="button" onclick="fetch('/browser/back',{method:'POST'}).finally(()=>{setTimeout(()=>{if(previewImg)previewImg.src='/browser/screenshot?_='+Date.now();},1000)})">&#x2190;</button>
                         <button class="zoom-btn" type="button" onclick="adjustZoom(-.1)">-</button>
                         <span class="zoom-level" id="zoomLabel">100%</span>
                         <button class="zoom-btn" type="button" onclick="adjustZoom(.1)">+</button>
