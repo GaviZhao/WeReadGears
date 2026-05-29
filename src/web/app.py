@@ -431,39 +431,47 @@ async def get_shelf_books():
 
 @app.get("/api/shelf-debug")
 async def shelf_debug():
-    """调试：返回书架页面快照"""
+    """调试：拦截书架网络请求查看数据结构"""
     try:
         page = await browser_manager.get_page()
-        await page.goto("https://weread.qq.com/web/shelf", timeout=20000, wait_until="networkidle")
-        await asyncio.sleep(3)
-        debug = await page.evaluate("""() => {
-            var info = {};
-            info.url = window.location.href;
-            info.title = document.title;
-            info.hasInitState = typeof __INITIAL_STATE__ !== 'undefined';
-            if (info.hasInitState) {
-                try {
-                    var st = __INITIAL_STATE__;
-                    info.initStateKeys = Object.keys(st);
-                    info.initStateSample = {};
-                    Object.keys(st).forEach(function(k) {
-                        var v = st[k];
-                        if (v && typeof v === 'object') {
-                            info.initStateSample[k] = Object.keys(v).slice(0, 10);
-                        }
-                    });
-                } catch(e) { info.initStateError = e.toString(); }
-            }
-            info.hasNextData = !!document.querySelector('#__NEXT_DATA__');
-            info.linkCount = document.querySelectorAll('a[href*="/web/reader/"]').length;
-            info.cardSamples = [];
-            var links = document.querySelectorAll('a[href*="/web/reader/"]');
-            links.forEach(function(a, i) {
-                if (i < 5) info.cardSamples.push(a.href + ' | ' + a.textContent.trim().substring(0, 80));
-            });
-            return info;
-        }""")
-        return JSONResponse(debug)
+        requests_seen = []
+        responses_seen = []
+
+        async def on_request(request):
+            if "shelf" in request.url.lower() or "book" in request.url.lower():
+                requests_seen.append(request.url[:120])
+
+        async def on_response(response):
+            url = response.url.lower()
+            if ("shelf" in url or "book" in url) and len(responses_seen) < 10:
+                try:
+                    body = await response.json()
+                    if isinstance(body, dict):
+                        key_sample = {k: (type(v).__name__ + f" len={len(v)}" if isinstance(v, (list, dict)) else str(v)[:50]) for k, v in list(body.items())[:10]}
+                        responses_seen.append({"url": url[:100], "keys": key_sample})
+                except:
+                    pass
+
+        page.on("request", on_request)
+        page.on("response", on_response)
+        try:
+            await page.goto("https://weread.qq.com/web/shelf", timeout=20000, wait_until="domcontentloaded")
+            await asyncio.sleep(6)
+        finally:
+            try:
+                page.remove_listener("request", on_request)
+            except:
+                pass
+            try:
+                page.remove_listener("response", on_response)
+            except:
+                pass
+
+        return JSONResponse({
+            "page_url": page.url,
+            "requests": requests_seen[:20],
+            "responses": responses_seen[:10],
+        })
     except Exception as e:
         return JSONResponse({"error": str(e)})
 
