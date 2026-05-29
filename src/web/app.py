@@ -406,7 +406,9 @@ async def logout():
 @app.post("/capture-curl")
 async def capture_curl():
     try:
-        ok = await browser_manager.capture_and_save_curl()
+        browser_status = browser_manager.get_login_status()
+        user_name = browser_status.get("user", "default")
+        ok = await browser_manager.capture_and_save_curl(user_name)
         if ok:
             return JSONResponse({"status": "ok", "message": "CURL参数捕获成功"})
         return JSONResponse({"status": "error", "message": "捕获失败: 未获取到ps/pc"})

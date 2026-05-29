@@ -548,12 +548,12 @@ class BrowserManager:
             user_data_manager.ensure_user_dir(user_name)
             user_data_manager.save_credentials(credentials, user_name)
             user_data_manager.save_cookies(cookies, user_name)
-            if capt.get("full_curl"):
-                user_data_manager.save_curl(capt.get("full_curl"), user_name)
             self._current_user = user_name
             self._login_status = "success"
             self._pending_login_data = None
-            logger.info(f"登录完成，用户: {user_name}")
+            logger.info(f"登录完成，用户: {user_name}，开始自动捕获CURL...")
+            await self.capture_and_save_curl(user_name)
+            logger.info(f"CURL捕获完成")
             return {"status": "ok", "user": user_name}
         except Exception as e:
             logger.error(f"完成登录失败: {e}")
