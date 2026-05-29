@@ -53,7 +53,7 @@ class Logger:
     @property
     def logger(self):
         if self._logger is None:
-            self.setup("weread-auto-reader")
+            self.setup("WeReadGears")
         return self._logger
 
     def debug(self, msg, *args, **kwargs):

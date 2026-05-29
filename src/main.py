@@ -21,7 +21,7 @@ import uvicorn
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="weread-auto-reader")
+    parser = argparse.ArgumentParser(description="WeReadGears")
     parser.add_argument(
         "--mode",
         choices=["immediate", "scheduled", "daemon"],
@@ -210,7 +210,7 @@ async def main():
     mode = args.mode or config.get("app.startup_mode", "immediate")
 
     logger.info("=" * 50)
-    logger.info("weread-auto-reader 启动")
+    logger.info("WeReadGears 启动")
     logger.info(f"运行模式: {mode}")
     logger.info("=" * 50)
 

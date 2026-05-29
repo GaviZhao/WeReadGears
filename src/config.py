@@ -44,7 +44,7 @@ class Config:
     def _get_default_config(self) -> Dict[str, Any]:
         return {
             "app": {
-                "name": "weread-auto-reader",
+                "name": "WeReadGears",
                 "version": "1.0.0",
                 "host": "0.0.0.0",
                 "port": 8000,

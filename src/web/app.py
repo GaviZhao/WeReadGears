@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
     logger.info("Web 服务关闭")
 
 
-app = FastAPI(title="weread-auto-reader", lifespan=lifespan)
+app = FastAPI(title="WeReadGears", lifespan=lifespan)
 
 
 class NoCacheMiddleware(BaseHTTPMiddleware):

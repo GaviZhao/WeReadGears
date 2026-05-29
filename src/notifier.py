@@ -420,7 +420,7 @@ class Notifier:
         return message
 
     async def notify_startup(self):
-        await self.send(f"weread-auto-reader 已启动", NotificationType.STARTUP)
+        await self.send(f"WeReadGears 已启动", NotificationType.STARTUP)
 
     async def notify_login_success(self, user_info: Dict[str, Any] = None):
         msg = "微信读书登录成功"
