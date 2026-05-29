@@ -218,8 +218,32 @@ class BrowserManager:
         
         cred.user_info["captured_appId"] = cp.get("appId", "")
         cred.user_info["captured_payload"] = cp
-        cred.user_info["captured_headers"] = {k: v for k, v in ch.items() if k.lower() not in ("cookie", "host", "content-length", "connection", "https") and ":" not in k}
-        cred.user_info["captured_cookies"] = cc
+        safe_headers = {}
+        for k, v in ch.items():
+            k_str = str(k)
+            v_str = str(v)
+            if k_str.lower() in ("cookie", "host", "content-length", "connection", "https"):
+                continue
+            if ":" in k_str:
+                continue
+            try:
+                k_str.encode("ascii")
+                v_str.encode("ascii")
+                safe_headers[k_str] = v_str
+            except UnicodeEncodeError:
+                continue
+        cred.user_info["captured_headers"] = safe_headers
+        safe_cookies = {}
+        for k, v in cc.items():
+            k_str = str(k)
+            v_str = str(v)
+            try:
+                k_str.encode("ascii")
+                v_str.encode("ascii")
+                safe_cookies[k_str] = v_str
+            except UnicodeEncodeError:
+                continue
+        cred.user_info["captured_cookies"] = safe_cookies
         
         if cc.get("wr_skey"):
             cred.wr_skey = cc["wr_skey"]
