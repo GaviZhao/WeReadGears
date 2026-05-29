@@ -594,7 +594,7 @@ class BrowserManager:
             return {"status": "error", "message": str(e)}
 
     async def fetch_shelf_books(self) -> list:
-        """从书架页面获取用户所有书籍"""
+        """从书架页面获取用户所有书籍，从/reader/链接提取bookId"""
         try:
             page = await self.get_page()
             logger.info(f"书架: 正在加载书架页面...")
@@ -609,6 +609,17 @@ class BrowserManager:
 
             books = await page.evaluate("""() => {
                 var result = [];
+                var seen = new Set();
+                var links = document.querySelectorAll('a[href*="/reader/"]');
+                for (var a of links) {
+                    var m = a.href.match(/\/reader\/([a-zA-Z0-9]{10,})/);
+                    if (m && !seen.has(m[1])) {
+                        seen.add(m[1]);
+                        var txt = (a.textContent || a.innerText || '').trim().substring(0, 60);
+                        if (txt) result.push({ book_id: m[1], name: txt, author: '' });
+                    }
+                }
+                if (result.length > 0) return result;
                 try {
                     var st = window.__INITIAL_STATE__ || {};
                     Object.keys(st).forEach(function(k) {
@@ -616,51 +627,18 @@ class BrowserManager:
                         if (v && v.bookInfoMap) {
                             Object.keys(v.bookInfoMap).forEach(function(id) {
                                 var b = v.bookInfoMap[id];
-                                result.push({
-                                    book_id: (b && b.bookId) || id || '',
-                                    name: (b && (b.title || (b.book && b.book.title))) || '',
-                                    author: (b && (b.author || (b.book && b.book.author))) || ''
-                                });
-                            });
-                        }
-                        if (v && v.books && Array.isArray(v.books)) {
-                            v.books.forEach(function(b) {
-                                result.push({
-                                    book_id: b.bookId || b.id || '',
-                                    name: b.title || (b.book && b.book.title) || '',
-                                    author: b.author || (b.book && b.book.author) || ''
-                                });
+                                if (!seen.has(id)) {
+                                    seen.add(id);
+                                    result.push({
+                                        book_id: (b && b.bookId) || id || '',
+                                        name: (b && (b.title || (b.book && b.book.title))) || '',
+                                        author: (b && (b.author || (b.book && b.book.author))) || ''
+                                    });
+                                }
                             });
                         }
                     });
                 } catch(e) {}
-                if (result.length > 0) return result;
-                try {
-                    var nd = document.querySelector('#__NEXT_DATA__');
-                    if (nd) {
-                        var raw = JSON.parse(nd.textContent);
-                        var walk = function(o) {
-                            if (!o || typeof o !== 'object') return;
-                            if (o.bookInfoMap) {
-                                Object.keys(o.bookInfoMap).forEach(function(id) {
-                                    var b = o.bookInfoMap[id];
-                                    result.push({ book_id: b.bookId || id || '', name: b.title || '' });
-                                });
-                            }
-                            Object.values(o).forEach(walk);
-                        };
-                        walk(raw);
-                    }
-                } catch(e) {}
-                if (result.length > 0) return result;
-                var links = document.querySelectorAll('a[href*="/reader/"], a[href*="/bookDetail"]');
-                links.forEach(function(a) {
-                    var m = a.href.match(/[?&](?:bid|bookId)=([a-zA-Z0-9_]+)/);
-                    if (m) {
-                        var txt = a.textContent.trim().substring(0, 60);
-                        if (txt) result.push({ book_id: m[1], name: txt, author: '' });
-                    }
-                });
                 return result;
             }""")
 
@@ -669,154 +647,64 @@ class BrowserManager:
                 for b in books[:5]:
                     logger.info(f"  [{b['book_id']}] {b['name']}")
             else:
-                url = page.url
-                title = await page.title()
-                body_preview = await page.evaluate("document.body ? document.body.innerText.substring(0, 300) : ''")
-                logger.warning(f"书架: 无结果 url={url} title={title} body={body_preview}")
+                logger.warning(f"书架: 无结果 url={page.url}")
             return books or []
         except Exception as e:
             logger.warning(f"获取书架失败: {e}")
             return []
 
     async def search_book_by_name(self, name: str) -> list:
-        """按书名搜索，返回bookId列表"""
+        """按书名搜索，点击书籍后从reader URL读取bookId"""
         try:
             page = await self.get_page()
             encoded = urllib.parse.quote(name)
-            url = f"https://weread.qq.com/web/search/global?keyword={encoded}"
-            logger.info(f"搜索: 正在导航到 {url}")
+            search_url = f"https://weread.qq.com/web/search/global?keyword={encoded}"
+            logger.info(f"搜索: {search_url}")
+            await page.goto(search_url, timeout=30000, wait_until="domcontentloaded")
+            await asyncio.sleep(4)
 
-            captured = {}
+            for _ in range(5):
+                await page.evaluate("window.scrollBy(0, 500)")
+                await asyncio.sleep(1)
 
-            async def on_response(response):
-                if captured.get("_done"):
-                    return
-                try:
-                    if "search" in response.url and "global" in response.url:
-                        body = await response.text()
-                        if body and (body.startswith('{') or body.startswith('[')):
-                            captured["_body"] = body
-                            captured["_done"] = True
-                except:
-                    pass
+            candidates = await page.evaluate("""() => {
+                var links = document.querySelectorAll('a[href]');
+                var results = [];
+                for (var a of links) {
+                    var h = a.href || '';
+                    if (h.includes('weread.qq.com') && (h.includes('reader') || h.includes('bookDetail'))) {
+                        var txt = (a.textContent || '').trim();
+                        if (txt.length > 0) results.push({ href: h, text: txt.substring(0, 80) });
+                    }
+                }
+                return results;
+            }""")
 
-            page.on("response", on_response)
-            try:
-                await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+            target_lower = name.lower()
+            best = None
+            for c in candidates:
+                if target_lower in c['text'].lower():
+                    best = c
+                    break
+
+            if not best and candidates:
+                best = candidates[0]
+
+            if best:
+                logger.info(f"搜索: 点击链接 '{best['text']}' -> {best['href']}")
+                await page.goto(best['href'], timeout=30000, wait_until="domcontentloaded")
                 await asyncio.sleep(3)
-                for _ in range(3):
-                    try:
-                        await page.evaluate("window.scrollBy(0, 500)")
-                        await asyncio.sleep(1)
-                    except:
-                        pass
-            finally:
-                try:
-                    page.remove_listener("response", on_response)
-                except:
-                    pass
+                final_url = page.url
+                m = re.search(r'/reader/([a-zA-Z0-9]{10,})', final_url)
+                if m:
+                    book_id = m.group(1)
+                    title = await page.title()
+                    logger.info(f"搜索 '{name}': 书籍ID={book_id}, 页面={final_url}")
+                    return [{"book_id": book_id, "name": name, "author": ""}]
 
-            results = []
-            seen = set()
-
-            if captured.get("_body"):
-                try:
-                    data = json.loads(captured["_body"])
-                    def walk(obj):
-                        if not obj or not isinstance(obj, (dict, list)):
-                            return
-                        if isinstance(obj, dict):
-                            bi = obj.get("bookInfo") or obj.get("book")
-                            if bi and isinstance(bi, dict):
-                                bid = bi.get("bookId")
-                                if bid and bid not in seen:
-                                    seen.add(bid)
-                                    results.append({
-                                        "book_id": bid,
-                                        "name": bi.get("title") or "",
-                                        "author": bi.get("author") or ""
-                                    })
-                            bd = obj.get("books")
-                            if isinstance(bd, list):
-                                for b in bd:
-                                    if isinstance(b, dict):
-                                        bi2 = b.get("bookInfo") or b
-                                        bid = bi2.get("bookId") or b.get("id")
-                                        if bid and bid not in seen:
-                                            seen.add(bid)
-                                            results.append({
-                                                "book_id": bid,
-                                                "name": bi2.get("title") or "",
-                                                "author": bi2.get("author") or ""
-                                            })
-                            for v in obj.values():
-                                walk(v)
-                        elif isinstance(obj, list):
-                            for item in obj:
-                                walk(item)
-                    walk(data)
-                    if results:
-                        logger.info(f"搜索 '{name}': 从网络响应解析到{len(results)}个结果")
-                        for r in results[:5]:
-                            logger.info(f"  [{r['book_id']}] {r['name']} - {r['author']}")
-                        return results[:10]
-                except Exception as e:
-                    logger.warning(f"网络响应JSON解析失败: {e}")
-
-            body_text = await page.evaluate(
-                "document.body ? (document.body.textContent || document.body.innerText || '').substring(0, 50000) : ''"
-            )
-            if body_text.startswith('{') or body_text.startswith('['):
-                try:
-                    data = json.loads(body_text)
-                    def walk2(obj):
-                        if not obj or not isinstance(obj, (dict, list)):
-                            return
-                        if isinstance(obj, dict):
-                            bi = obj.get("bookInfo") or obj.get("book")
-                            if bi and isinstance(bi, dict):
-                                bid = bi.get("bookId")
-                                if bid and bid not in seen:
-                                    seen.add(bid)
-                                    results.append({
-                                        "book_id": bid,
-                                        "name": bi.get("title") or "",
-                                        "author": bi.get("author") or ""
-                                    })
-                            bd = obj.get("books")
-                            if isinstance(bd, list):
-                                for b in bd:
-                                    if isinstance(b, dict):
-                                        bi2 = b.get("bookInfo") or b
-                                        bid = bi2.get("bookId") or b.get("id")
-                                        if bid and bid not in seen:
-                                            seen.add(bid)
-                                            results.append({
-                                                "book_id": bid,
-                                                "name": bi2.get("title") or "",
-                                                "author": bi2.get("author") or ""
-                                            })
-                            for v in obj.values():
-                                walk2(v)
-                        elif isinstance(obj, list):
-                            for item in obj:
-                                walk2(item)
-                    walk2(data)
-                    if results:
-                        logger.info(f"搜索 '{name}': 从页面body解析到{len(results)}个结果")
-                        for r in results[:5]:
-                            logger.info(f"  [{r['book_id']}] {r['name']} - {r['author']}")
-                        return results[:10]
-                except Exception as e:
-                    logger.warning(f"body JSON解析失败: {e}")
-
-            logger.warning(f"搜索 '{name}': 无结果 url={page.url}")
-            logger.warning(f"  body预览({len(body_text)}字): {body_text[:300]}")
+            logger.warning(f"搜索 '{name}': 无法获取书籍ID")
+            logger.warning(f"  候选链接: {candidates[:3] if candidates else '无'}")
             return []
-        except Exception as e:
-            logger.warning(f"搜索书籍失败: {e}")
-            return []
-            return results or []
         except Exception as e:
             logger.warning(f"搜索书籍失败: {e}")
             return []
