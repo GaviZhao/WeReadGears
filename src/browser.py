@@ -587,137 +587,81 @@ class BrowserManager:
             return {"status": "error", "message": str(e)}
 
     async def fetch_shelf_books(self) -> list:
-        """通过拦截网络请求从书架获取书籍列表"""
+        """从书架页面获取用户所有书籍"""
         try:
             page = await self.get_page()
-            intercepted = {}
-
-            async def on_response(response):
-                url = response.url.lower()
-                if "shelf" in url and ("sync" in url or "booklist" in url or "shelflist" in url):
-                    try:
-                        body = await response.json()
-                        if isinstance(body, dict):
-                            intercepted["data"] = body
-                    except:
-                        pass
-
-            page.on("response", on_response)
-            try:
-                await page.goto("https://weread.qq.com/web/shelf", timeout=20000, wait_until="domcontentloaded")
-                for i in range(10):
-                    await asyncio.sleep(2)
-                    if intercepted.get("data"):
-                        break
-                    try:
-                        await page.evaluate("window.scrollBy(0, 300)")
-                    except:
-                        pass
-            finally:
-                try:
-                    page.remove_listener("response", on_response)
-                except:
-                    pass
-
-            data = intercepted.get("data", {})
-            books = []
-            for key_name in ("books", "bookList", "shelfBooks", "recentBookList", "favoriteBookList"):
-                val = data.get(key_name, [])
-                if isinstance(val, list) and val:
-                    for item in val:
-                        if isinstance(item, dict):
-                            books.append({
-                                "book_id": str(item.get("bookId") or item.get("id") or item.get("book_id") or ""),
-                                "name": str(item.get("title") or item.get("name") or item.get("book", {}).get("title", "") or ""),
-                                "author": str(item.get("author") or item.get("book", {}).get("author", "") or ""),
-                            })
-                    if books:
-                        break
-
-            if not books:
-                book_info_map = data.get("bookInfoMap", data.get("bookInfo", {}))
-                if isinstance(book_info_map, dict):
-                    for bid, info in book_info_map.items():
-                        if isinstance(info, dict):
-                            books.append({
-                                "book_id": str(info.get("bookId") or bid or ""),
-                                "name": str(info.get("title") or info.get("book", {}).get("title", "") or ""),
-                                "author": str(info.get("author") or info.get("book", {}).get("author", "") or ""),
-                            })
-
+            await page.goto("https://weread.qq.com/web/shelf", timeout=25000, wait_until="domcontentloaded")
+            for i in range(20):
+                await asyncio.sleep(1)
+                books = await page.evaluate("""() => {
+                    var links = document.querySelectorAll('a[href*="/web/reader/"]');
+                    if (links.length === 0) {
+                        links = document.querySelectorAll('[href*="/reader/"]');
+                    }
+                    var seen = {}, result = [];
+                    links.forEach(function(a) {
+                        var m = a.href.match(/\\/(?:web\\/)?reader\\/([a-zA-Z0-9_]{10,})/);
+                        if (m && !seen[m[1]]) {
+                            seen[m[1]] = true;
+                            var el = a;
+                            for (var d = 0; d < 5; d++) {
+                                var t = el.querySelector('[class*="title"], [class*="name"], .book_title, .shelf-book-title');
+                                if (t) { el = t; break; }
+                                el = el.parentElement || el;
+                            }
+                            var name = el.textContent.trim();
+                            if (name.length > 60) name = name.substring(0, 60);
+                            result.push({ book_id: m[1], name: name, author: '' });
+                        }
+                    });
+                    return result;
+                }""")
+                if books and len(books) > 0:
+                    break
             if books:
-                logger.info(f"书架拦截: {len(books)} 本书")
-                for b in books[:5]:
-                    logger.info(f"  {b.get('name','')}  ID={b.get('book_id','')}")
-                if len(books) > 5:
-                    logger.info(f"  ... 共 {len(books)} 本")
+                logger.info(f"书架获取: {len(books)} 本书")
             else:
-                logger.warning(f"书架拦截为空, data_keys={list(data.keys()) if data else 'none'}")
+                logger.warning(f"书架页面未找到书籍链接, url={page.url}")
             return books or []
         except Exception as e:
             logger.warning(f"获取书架失败: {e}")
             return []
 
     async def search_book_by_name(self, name: str) -> list:
-        """通过拦截网络请求按书名搜索书籍ID"""
+        """按书名搜索书籍ID"""
         try:
             page = await self.get_page()
-            intercepted = {}
-
-            async def on_response(response):
-                url = response.url.lower()
-                if "search" in url and ("global" in url or "books" in url):
-                    try:
-                        body = await response.json()
-                        if isinstance(body, dict):
-                            intercepted["data"] = body
-                    except:
-                        pass
-
-            page.on("response", on_response)
-            try:
-                search_url = f"https://weread.qq.com/web/search/global?keyword={urllib.parse.quote(name)}"
-                await page.goto(search_url, timeout=20000, wait_until="domcontentloaded")
-                for i in range(8):
-                    await asyncio.sleep(2)
-                    if intercepted.get("data"):
-                        break
-            finally:
-                try:
-                    page.remove_listener("response", on_response)
-                except:
-                    pass
-
-            data = intercepted.get("data", {})
-            results = []
-            for key_name in ("books", "bookList", "results", "items"):
-                val = data.get(key_name, [])
-                if isinstance(val, list) and val:
-                    for item in val:
-                        if isinstance(item, dict):
-                            results.append({
-                                "book_id": str(item.get("bookId") or item.get("id") or item.get("book_id") or ""),
-                                "name": str(item.get("title") or item.get("name") or item.get("book", {}).get("title", "") or ""),
-                                "author": str(item.get("author") or item.get("book", {}).get("author", "") or ""),
-                            })
-                    if results:
-                        break
-
-            if not results:
-                book_info_map = data.get("bookInfoMap", data.get("bookInfo", {}))
-                if isinstance(book_info_map, dict):
-                    for bid, info in book_info_map.items():
-                        if isinstance(info, dict):
-                            results.append({
-                                "book_id": str(info.get("bookId") or bid or ""),
-                                "name": str(info.get("title") or info.get("book", {}).get("title", "") or ""),
-                                "author": str(info.get("author") or info.get("book", {}).get("author", "") or ""),
-                            })
-
+            search_url = f"https://weread.qq.com/web/search/global?keyword={urllib.parse.quote(name)}"
+            await page.goto(search_url, timeout=25000, wait_until="domcontentloaded")
+            for i in range(10):
+                await asyncio.sleep(1)
+                results = await page.evaluate("""() => {
+                    var links = document.querySelectorAll('a[href*="/web/reader/"]');
+                    if (links.length === 0) {
+                        links = document.querySelectorAll('[href*="/reader/"]');
+                    }
+                    var seen = {}, result = [];
+                    links.forEach(function(a) {
+                        var m = a.href.match(/\\/(?:web\\/)?reader\\/([a-zA-Z0-9_]{10,})/);
+                        if (m && !seen[m[1]]) {
+                            seen[m[1]] = true;
+                            var el = a;
+                            for (var d = 0; d < 5; d++) {
+                                var t = el.querySelector('[class*="title"], [class*="name"]');
+                                if (t) { el = t; break; }
+                                el = el.parentElement || el;
+                            }
+                            var name = el.textContent.trim();
+                            if (name.length > 60) name = name.substring(0, 60);
+                            result.push({ book_id: m[1], name: name, author: '' });
+                        }
+                    });
+                    return result.slice(0, 10);
+                }""")
+                if results and len(results) > 0:
+                    break
             if results:
                 logger.info(f"搜索 '{name}': 找到 {len(results)} 个结果")
-            else:
-                logger.warning(f"搜索拦截为空: data_keys={list(data.keys()) if data else 'none'}")
             return results or []
         except Exception as e:
             logger.warning(f"搜索书籍失败: {e}")
