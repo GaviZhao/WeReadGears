@@ -898,7 +898,7 @@ function startProgressPoll() {
     simRunning = true;
     var gearIcon = document.querySelector('.gear-wrap');
     if (gearIcon) gearIcon.classList.add('spinning');
-    var readStartTime = Date.now();
+    var notRunningCount = 0;
     function updateUI() {
         var btn = document.getElementById('btnRead');
         if (!simRunning) {
@@ -932,6 +932,7 @@ function startProgressPoll() {
             document.getElementById('progressBook').textContent = bk ? '\uD83D\uDCD6 ' + bk : '';
             if (d.is_running) {
                 simRunning = true;
+                notRunningCount = 0;
                 var newElapsed = d.elapsed || simElapsed;
                 if (newElapsed > simElapsed) {
                     simElapsed = newElapsed;
@@ -939,7 +940,10 @@ function startProgressPoll() {
                 }
                 if (d.target && d.target > 0) { simTarget = d.target; }
             } else {
-                simRunning = false;
+                notRunningCount++;
+                if (notRunningCount >= 3) {
+                    simRunning = false;
+                }
             }
         }).catch(function() {});
         fetch('/api-reading-logs').then(function(r) { return r.json(); }).then(function(logs) {
@@ -949,7 +953,7 @@ function startProgressPoll() {
             c.scrollTop = c.scrollHeight;
         }).catch(function() {});
     }
-    refreshBackend();
+    setTimeout(refreshBackend, 2000);
     progressPoll = setInterval(updateUI, 1000);
     logPoll = setInterval(refreshBackend, 3000);
 }
@@ -1054,7 +1058,7 @@ function updateLoginButtons() {
     var btnLogin = document.getElementById('btnLogin');
     var btnLogout = document.getElementById('btnLogout');
     if (!loginStatus || !btnLogin || !btnLogout) return;
-    var isLoggedIn = loginStatus.textContent === '已登录';
+    var isLoggedIn = loginStatus.textContent.indexOf('已登录') === 0;
     btnLogin.style.display = isLoggedIn ? 'none' : '';
     btnLogout.style.display = isLoggedIn ? '' : 'none';
 }

@@ -130,6 +130,13 @@ async def index(request: Request):
     browser_status = browser_manager.get_login_status()
     logged_in_user = browser_status.get("user") if browser_status.get("status") == "success" else None
     cookies_valid = logged_in_user is not None
+    if not cookies_valid:
+        for cred_user in credential_manager.get_all_users():
+            cred = credential_manager.load(cred_user)
+            if cred and cred.is_valid():
+                cookies_valid = True
+                logged_in_user = cred_user
+                break
     valid_users = cookie_manager.get_all_valid_users()
     cookies_info = cookie_manager.get_expiry_info(valid_users[0]) if valid_users else None
     cron = schedule_config.get("cron_expression", "0 9,12,18 * * *")
