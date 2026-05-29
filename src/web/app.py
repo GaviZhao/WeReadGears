@@ -431,37 +431,45 @@ async def get_shelf_books():
 
 @app.get("/api/shelf-debug")
 async def shelf_debug():
-    """调试：拦截书架网络请求查看数据结构"""
+    """调试：拦截书架页所有API请求"""
     try:
         page = await browser_manager.get_page()
-        requests_seen = []
-        responses_seen = []
-
-        async def on_request(request):
-            if "shelf" in request.url.lower() or "book" in request.url.lower():
-                requests_seen.append(request.url[:120])
+        intercepted = []
 
         async def on_response(response):
-            url = response.url.lower()
-            if ("shelf" in url or "book" in url) and len(responses_seen) < 10:
-                try:
-                    body = await response.json()
-                    if isinstance(body, dict):
-                        key_sample = {k: (type(v).__name__ + f" len={len(v)}" if isinstance(v, (list, dict)) else str(v)[:50]) for k, v in list(body.items())[:10]}
-                        responses_seen.append({"url": url[:100], "keys": key_sample})
-                except:
-                    pass
-
-        page.on("request", on_request)
-        page.on("response", on_response)
-        try:
-            await page.goto("https://weread.qq.com/web/shelf", timeout=20000, wait_until="domcontentloaded")
-            await asyncio.sleep(6)
-        finally:
+            url = response.url
+            content_type = response.headers.get("content-type", "")
+            if len(intercepted) >= 30:
+                return
             try:
-                page.remove_listener("request", on_request)
+                body = await response.text()
+                body_short = body[:300] if len(body) > 300 else body
+                is_json = "json" in content_type or body.strip().startswith("{") or body.strip().startswith("[")
+                if is_json and "http" not in url[:5] and "socket" not in url:
+                    pass
+                info = {
+                    "url": url[:120],
+                    "status": response.status_code,
+                    "content_type": content_type[:60],
+                    "is_json": is_json,
+                }
+                if is_json and len(body) < 5000:
+                    try:
+                        js = json.loads(body)
+                        info["json_keys"] = list(js.keys()) if isinstance(js, dict) else f"list_len={len(js)}"
+                    except:
+                        info["body_preview"] = body_short
+                intercepted.append(info)
             except:
                 pass
+
+        page.on("response", on_response)
+        try:
+            await page.goto("https://weread.qq.com/web/shelf", timeout=25000, wait_until="domcontentloaded")
+            await asyncio.sleep(5)
+            await page.evaluate("window.scrollBy(0, 500)")
+            await asyncio.sleep(2)
+        finally:
             try:
                 page.remove_listener("response", on_response)
             except:
@@ -469,8 +477,8 @@ async def shelf_debug():
 
         return JSONResponse({
             "page_url": page.url,
-            "requests": requests_seen[:20],
-            "responses": responses_seen[:10],
+            "title": await page.evaluate("document.title"),
+            "intercepted": intercepted,
         })
     except Exception as e:
         return JSONResponse({"error": str(e)})
