@@ -593,47 +593,41 @@ class BrowserManager:
         except:
             page = await self.get_page()
         try:
-            url = "https://weread.qq.com/web/shelf"
-            logger.info(f"书架: 导航到 {url}")
-            await page.goto(url, timeout=25000, wait_until="domcontentloaded")
-            logger.info(f"书架: 当前URL={page.url}, title={await page.evaluate('document.title')}")
-            for i in range(20):
+            await page.goto("https://weread.qq.com/web/shelf", timeout=30000, wait_until="networkidle")
+            logger.info(f"书架: URL={page.url}, title={await page.evaluate('document.title')}")
+            try:
+                await page.wait_for_selector('a[href*="/web/reader/"], a[href*="/reader/"]', timeout=15000)
+            except:
+                await page.wait_for_timeout(5000)
+            for i in range(10):
                 await asyncio.sleep(1)
-                debug = await page.evaluate("""() => {
-                    var allLinks = document.querySelectorAll('a');
-                    var readerLinks = [];
-                    allLinks.forEach(function(a) {
-                        if (a.href.indexOf('/reader/') >= 0) readerLinks.push(a.href.substring(0, 120));
-                    });
-                    return { totalLinks: allLinks.length, readerLinks: readerLinks.slice(0, 10), bodyText: document.body ? document.body.innerText.substring(0, 300) : '' };
-                }""")
-                logger.info(f"书架: 第{i+1}次 共{debug['totalLinks']}个链接 reader链接{len(debug['readerLinks'])}个 body={debug.get('bodyText','')[:80]}")
+                await page.evaluate("window.scrollBy(0, 300)")
                 books = await page.evaluate("""() => {
-                    var links = document.querySelectorAll('a[href*="/web/reader/"]');
-                    if (links.length === 0) links = document.querySelectorAll('a[href*="/reader/"]');
+                    var links = document.querySelectorAll('a[href*="/web/reader/"], a[href*="/reader/"]');
                     var seen = {}, result = [];
                     links.forEach(function(a) {
                         var m = a.href.match(/\\/(?:web\\/)?reader\\/([a-zA-Z0-9_]{10,})/);
                         if (m && !seen[m[1]]) {
                             seen[m[1]] = true;
+                            var name = '';
                             var el = a;
                             for (var d = 0; d < 5; d++) {
                                 var t = el.querySelector('[class*="title"], [class*="name"], .book_title');
-                                if (t) { el = t; break; }
+                                if (t) { name = t.textContent.trim(); break; }
                                 el = el.parentElement || el;
                             }
-                            var name = el.textContent.trim();
-                            if (name.length > 60) name = name.substring(0, 60);
+                            if (!name) name = a.textContent.trim();
+                            if (name.length > 80) name = name.substring(0, 80);
                             result.push({ book_id: m[1], name: name, author: '' });
                         }
                     });
                     return result;
                 }""")
                 if books and len(books) > 0:
-                    logger.info(f"书架: 第{i+1}次获取 {len(books)} 本书")
+                    logger.info(f"书架: {len(books)}本书")
                     break
             if not books:
-                logger.warning(f"书架: 未找到书籍, url={page.url}")
+                logger.warning(f"书架: 未找到, url={page.url}")
             return books or []
         except Exception as e:
             logger.warning(f"获取书架失败: {e}")
@@ -653,52 +647,44 @@ class BrowserManager:
             page = await self.get_page()
         try:
             encoded = urllib.parse.quote(name)
-            search_url = f"https://weread.qq.com/web/search/global?keyword={encoded}"
-            logger.info(f"搜索: name='{name}' encoded='{encoded}' url={search_url}")
-            await page.goto(search_url, timeout=25000, wait_until="domcontentloaded")
-            logger.info(f"搜索: 当前URL={page.url}, title={await page.evaluate('document.title')}")
-            for i in range(10):
+            url = f"https://weread.qq.com/web/search/global?keyword={encoded}"
+            logger.info(f"搜索: '{name}' -> {url}")
+            await page.goto(url, timeout=30000, wait_until="networkidle")
+            logger.info(f"搜索: URL={page.url}, title={await page.evaluate('document.title')}")
+            try:
+                await page.wait_for_selector('a[href*="/web/reader/"], a[href*="/reader/"], [class*="searchBook"], [class*="bookItem"]', timeout=15000)
+            except:
+                await page.wait_for_timeout(5000)
+            for i in range(8):
                 await asyncio.sleep(1)
-                debug = await page.evaluate("""() => {
-                    var allLinks = document.querySelectorAll('a');
-                    var readerLinks = [];
-                    allLinks.forEach(function(a) {
-                        if (a.href.indexOf('/reader/') >= 0) readerLinks.push(a.href.substring(0, 120));
-                    });
-                    return { totalLinks: allLinks.length, readerLinks: readerLinks.slice(0, 10), bodyText: document.body ? document.body.innerText.substring(0, 300) : '' };
-                }""")
-                logger.info(f"搜索: 第{i+1}次 共{debug['totalLinks']}个链接 reader链接{len(debug['readerLinks'])}个")
-                if debug['readerLinks']:
-                    for rl in debug['readerLinks'][:3]:
-                        logger.info(f"  链接样本: {rl}")
                 results = await page.evaluate("""() => {
-                    var links = document.querySelectorAll('a[href*="/web/reader/"]');
-                    if (links.length === 0) links = document.querySelectorAll('a[href*="/reader/"]');
+                    var links = document.querySelectorAll('a[href*="/web/reader/"], a[href*="/reader/"]');
                     var seen = {}, result = [];
                     links.forEach(function(a) {
                         var m = a.href.match(/\\/(?:web\\/)?reader\\/([a-zA-Z0-9_]{10,})/);
                         if (m && !seen[m[1]]) {
                             seen[m[1]] = true;
+                            var name = '';
                             var el = a;
                             for (var d = 0; d < 5; d++) {
                                 var t = el.querySelector('[class*="title"], [class*="name"]');
-                                if (t) { el = t; break; }
+                                if (t) { name = t.textContent.trim(); break; }
                                 el = el.parentElement || el;
                             }
-                            var name = el.textContent.trim();
-                            if (name.length > 60) name = name.substring(0, 60);
+                            if (!name) name = a.textContent.trim();
+                            if (name.length > 80) name = name.substring(0, 80);
                             result.push({ book_id: m[1], name: name, author: '' });
                         }
                     });
                     return result.slice(0, 10);
                 }""")
                 if results and len(results) > 0:
-                    logger.info(f"搜索: 第{i+1}次找到 {len(results)} 个结果")
-                    for r in results[:3]:
-                        logger.info(f"  result: name='{r.get('name','')}' id={r.get('book_id','')}")
+                    logger.info(f"搜索: {len(results)}个结果")
+                    for r in results[:2]:
+                        logger.info(f"  {r['name']} id={r['book_id']}")
                     break
             if not results:
-                logger.warning(f"搜索: 未找到结果, url={page.url}")
+                logger.warning(f"搜索: 未找到, url={page.url}")
             return results or []
         except Exception as e:
             logger.warning(f"搜索书籍失败: {e}")
