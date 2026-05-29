@@ -768,13 +768,51 @@ class BrowserManager:
                 for r in results[:5]:
                     logger.info(f"  [{r['book_id']}] {r['name']} - {r['author']}")
             else:
-                url = page.url
-                title = await page.title()
-                body_text = await page.evaluate("document.body ? document.body.innerText.substring(0, 500) : ''")
-                logger.warning(f"搜索 '{name}': 无结果 url={page.url} title={title} body={body_text}")
+                body_text = await page.evaluate("document.body ? (document.body.innerText || document.body.textContent || '').substring(0, 500) : ''")
+                if body_text.startswith('{') or body_text.startswith('['):
+                    try:
+                        raw_data = json.loads(body_text)
+                        parsed_results = []
+                        def extract_books(obj):
+                            if not obj or not isinstance(obj, dict):
+                                return
+                            if isinstance(obj, dict):
+                                bi = obj.get('bookInfo') or obj.get('book')
+                                if bi and isinstance(bi, dict):
+                                    bid = bi.get('bookId') or ''
+                                    if bid:
+                                        parsed_results.append({
+                                            'book_id': bid,
+                                            'name': bi.get('title') or '',
+                                            'author': bi.get('author') or ''
+                                        })
+                                if 'books' in obj and isinstance(obj['books'], list):
+                                    for b in obj['books']:
+                                        if isinstance(b, dict):
+                                            bi = b.get('bookInfo') or b
+                                            bid = bi.get('bookId') or b.get('id') or ''
+                                            if bid:
+                                                parsed_results.append({
+                                                    'book_id': bid,
+                                                    'name': bi.get('title') or '',
+                                                    'author': bi.get('author') or ''
+                                                })
+                                for v in obj.values():
+                                    extract_books(v)
+                            elif isinstance(obj, list):
+                                for item in obj:
+                                    extract_books(item)
+                        extract_books(raw_data)
+                        if parsed_results:
+                            logger.info(f"搜索 '{name}': 从JSON body解析到{len(parsed_results)}个结果")
+                            for r in parsed_results[:5]:
+                                logger.info(f"  [{r['book_id']}] {r['name']} - {r['author']}")
+                            return parsed_results[:10]
+                    except Exception as je:
+                        logger.warning(f"JSON解析失败: {je}")
+                logger.warning(f"搜索 '{name}': 无结果 url={page.url}")
                 a_count = await page.evaluate('document.querySelectorAll("a").length')
-                a_count = await page.evaluate('document.querySelectorAll("a").length')
-                logger.warning(f"  页面标题: {page_title}, 链接数: {a_count}")
+                logger.warning(f"  body预览: {body_text[:200]}")
             return results or []
         except Exception as e:
             logger.warning(f"搜索书籍失败: {e}")
