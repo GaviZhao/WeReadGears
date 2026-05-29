@@ -645,7 +645,7 @@ class BrowserManager:
             if books:
                 logger.info(f"书架: {len(books)}本书")
             else:
-                logger.warning(f"书架: 无结果")
+                logger.warning(f"书架: 未拦截到数据")
             return books or []
         except Exception as e:
             logger.warning(f"获取书架失败: {e}")
@@ -708,7 +708,7 @@ class BrowserManager:
             if results:
                 logger.info(f"搜索: {len(results)}个结果")
             else:
-                logger.warning(f"搜索: 无结果")
+                logger.warning(f"搜索: 未拦截到数据")
             return results or []
         except Exception as e:
             logger.warning(f"搜索书籍失败: {e}")

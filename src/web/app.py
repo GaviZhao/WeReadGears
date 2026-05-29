@@ -431,55 +431,64 @@ async def get_shelf_books():
 
 @app.get("/api/shelf-debug")
 async def shelf_debug():
-    """调试：拦截书架页所有API请求"""
+    """调试：拦截书架页所有JSON响应"""
     try:
         page = await browser_manager.get_page()
-        intercepted = []
+        jsons = []
 
         async def on_response(response):
-            url = response.url
-            content_type = response.headers.get("content-type", "")
-            if len(intercepted) >= 30:
-                return
             try:
-                body = await response.text()
-                body_short = body[:300] if len(body) > 300 else body
-                is_json = "json" in content_type or body.strip().startswith("{") or body.strip().startswith("[")
-                if is_json and "http" not in url[:5] and "socket" not in url:
-                    pass
-                info = {
-                    "url": url[:120],
-                    "status": response.status_code,
-                    "content_type": content_type[:60],
-                    "is_json": is_json,
-                }
-                if is_json and len(body) < 5000:
-                    try:
-                        js = json.loads(body)
-                        info["json_keys"] = list(js.keys()) if isinstance(js, dict) else f"list_len={len(js)}"
-                    except:
-                        info["body_preview"] = body_short
-                intercepted.append(info)
+                body = await response.json()
+                if isinstance(body, dict):
+                    ks = list(body.keys())[:20]
+                    jsons.append({"url": response.url[:150], "keys": ks})
             except:
                 pass
 
         page.on("response", on_response)
         try:
-            await page.goto("https://weread.qq.com/web/shelf", timeout=25000, wait_until="domcontentloaded")
-            await asyncio.sleep(5)
-            await page.evaluate("window.scrollBy(0, 500)")
-            await asyncio.sleep(2)
+            await page.goto("https://weread.qq.com/web/shelf", timeout=30000, wait_until="networkidle")
+            await asyncio.sleep(4)
         finally:
             try:
                 page.remove_listener("response", on_response)
             except:
                 pass
 
-        return JSONResponse({
-            "page_url": page.url,
-            "title": await page.evaluate("document.title"),
-            "intercepted": intercepted,
-        })
+        return JSONResponse({"url": page.url, "json_responses": jsons})
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
+
+
+@app.get("/api/search-debug")
+async def search_debug(q: str = ""):
+    """调试：拦截搜索页所有JSON响应"""
+    try:
+        from urllib.parse import quote
+        page = await browser_manager.get_page()
+        jsons = []
+
+        async def on_response(response):
+            try:
+                body = await response.json()
+                if isinstance(body, dict):
+                    ks = list(body.keys())[:20]
+                    jsons.append({"url": response.url[:150], "keys": ks})
+            except:
+                pass
+
+        page.on("response", on_response)
+        try:
+            keyword = q or "明朝那些事儿"
+            await page.goto(f"https://weread.qq.com/web/search/global?keyword={quote(keyword)}", timeout=30000, wait_until="networkidle")
+            await asyncio.sleep(4)
+        finally:
+            try:
+                page.remove_listener("response", on_response)
+            except:
+                pass
+
+        return JSONResponse({"url": page.url, "json_responses": jsons})
     except Exception as e:
         return JSONResponse({"error": str(e)})
 
