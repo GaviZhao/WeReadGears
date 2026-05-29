@@ -141,9 +141,14 @@ class ApiReader:
             self.headers = dict(self.DEFAULT_HEADERS)
             for k, v in ch.items():
                 kl = k.lower()
-                if ":" in k or kl in ("https", "cookie", "host", "content-length", "connection", "baggage", "sentry"):
+                k_space = " " in k or "//" in k or "{" in k or "--" in k
+                if k_space or kl in ("https", "cookie", "host", "content-length", "connection", "baggage", "sentry"):
                     continue
                 if kl.startswith("sec-"):
+                    continue
+                try:
+                    k.encode("ascii")
+                except UnicodeEncodeError:
                     continue
                 safe_v = "".join(c for c in str(v) if ord(c) < 128)
                 if safe_v:

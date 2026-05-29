@@ -89,20 +89,22 @@ def _extract_headers(lines: List[str]) -> Dict[str, str]:
             continue
         if "-H " in line or "--header " in line:
             parts = re.split(r"(?:-H\s+|--header\s+)", line)
-            for part in parts:
+            for idx, part in enumerate(parts):
                 part = part.strip()
                 if not part:
+                    continue
+                if idx == 0:
                     continue
                 header_val = _parse_single_header(part)
                 if header_val:
                     key, val = header_val
-                    if key.lower() not in ("cookie", "host", "content-length", "connection", "https") and ":" not in key:
+                    if _is_valid_header_key(key) and key.lower() not in ("cookie", "host", "content-length", "connection"):
                         headers[key] = val
         if line.startswith("'"):
             header_val = _parse_single_header(line)
             if header_val:
                 key, val = header_val
-                if key.lower() not in ("cookie", "host", "content-length", "connection", "https") and ":" not in key:
+                if _is_valid_header_key(key) and key.lower() not in ("cookie", "host", "content-length", "connection"):
                     headers[key] = val
     return headers
 
@@ -122,6 +124,20 @@ def _parse_single_header(part: str) -> Optional[Tuple[str, str]]:
         if key and val:
             return (key, val)
     return None
+
+
+def _is_valid_header_key(key: str) -> bool:
+    if not key:
+        return False
+    if " " in key:
+        return False
+    if "//" in key:
+        return False
+    if "{" in key or "}" in key:
+        return False
+    if "--" in key:
+        return False
+    return True
 
 
 def _extract_cookies(headers: Dict[str, str]) -> Dict[str, str]:
