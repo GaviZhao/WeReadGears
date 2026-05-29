@@ -385,17 +385,9 @@ async def get_api_reading_logs():
 
 @app.post("/logout")
 async def logout():
-    from src.user_data_manager import user_data_manager
-    cookie_manager.clear()
-    for user_dir in user_data_manager.base_dir.iterdir():
-        if user_dir.is_dir():
-            try:
-                import shutil
-                shutil.rmtree(user_dir)
-            except:
-                pass
     browser_manager._current_user = ""
     browser_manager._login_status = "idle"
+    browser_manager.reset_login_status()
     try:
         if browser_manager.context:
             await browser_manager.context.clear_cookies()
@@ -403,7 +395,7 @@ async def logout():
             await browser_manager.page.goto("https://weread.qq.com/", timeout=10000)
     except:
         pass
-    return JSONResponse({"status": "ok", "message": "已退出登录，凭据已清除"})
+    return JSONResponse({"status": "ok", "message": "已退出登录"})
 
 
 @app.post("/capture-curl")
