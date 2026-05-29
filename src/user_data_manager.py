@@ -8,10 +8,11 @@ from src.api_reader import UserCredentials
 
 
 class UserDataManager:
-    """用户数据管理器 - 按用户分目录存储"""
+    """用户数据管理器 - 按用户分目录存储在 shared/credentials/{用户名}/"""
 
-    def __init__(self, base_dir: str = "shared"):
+    def __init__(self, base_dir: str = "shared/credentials"):
         self.base_dir = Path(base_dir)
+        self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def get_user_dir(self, user_name: str) -> Path:
         """获取用户数据目录"""
@@ -164,12 +165,13 @@ class UserDataManager:
             return None
 
     def migrate_from_old_structure(self) -> List[str]:
-        """从旧结构迁移数据到新结构"""
+        """从旧结构迁移数据到新结构（shared/credentials/{用户名}/）"""
         migrated = []
-        old_cred_dir = self.base_dir / "credentials"
+        old_base = Path("shared")
+        old_cred_dir = old_base / "credentials"
         if not old_cred_dir.exists():
             return migrated
-        old_curl = self.base_dir / "curl_command.txt"
+        old_curl = old_base / "curl_command.txt"
         for cred_file in old_cred_dir.glob("*.json"):
             if cred_file.name == "reading_progress.json":
                 continue

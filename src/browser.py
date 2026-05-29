@@ -182,8 +182,9 @@ class BrowserManager:
         lines.append(f"  --data-raw '{body_json.replace(chr(39), chr(39)+chr(92)+chr(39)+chr(39))}'")
         curl_text = "\n".join(lines)
 
-        curl_file = Path("shared") / "curl_command.txt"
-        curl_file.parent.mkdir(parents=True, exist_ok=True)
+        from src.user_data_manager import user_data_manager
+        user_data_manager.ensure_user_dir(user_name)
+        curl_file = user_data_manager.get_user_dir(user_name) / "curl_command.txt"
         with open(curl_file, "w", encoding="utf-8") as f:
             f.write(curl_text)
         logger.info(f"完整curl已保存到 {curl_file}")

@@ -127,8 +127,9 @@ async def index(request: Request):
     daemon_config = config.get("daemon", {})
     history_config = config.get("history", {})
 
-    cookies_valid = cookie_manager.is_valid()
-    cookies_info = cookie_manager.get_expiry_info()
+    cookies_valid = len(cookie_manager.get_all_valid_users()) > 0
+    valid_users = cookie_manager.get_all_valid_users()
+    cookies_info = cookie_manager.get_expiry_info(valid_users[0]) if valid_users else None
     cron = schedule_config.get("cron_expression", "0 9,12,18 * * *")
     times = schedule_config.get("times", _cron_to_times(cron))
 
