@@ -589,7 +589,10 @@ class BrowserManager:
     async def fetch_shelf_books(self) -> list:
         """从书架页面获取用户所有书籍"""
         try:
+            page = await self.context.new_page()
+        except:
             page = await self.get_page()
+        try:
             url = "https://weread.qq.com/web/shelf"
             logger.info(f"书架: 导航到 {url}")
             await page.goto(url, timeout=25000, wait_until="domcontentloaded")
@@ -635,11 +638,20 @@ class BrowserManager:
         except Exception as e:
             logger.warning(f"获取书架失败: {e}")
             return []
+        finally:
+            try:
+                await page.close()
+            except:
+                pass
 
     async def search_book_by_name(self, name: str) -> list:
         """按书名搜索书籍ID"""
+        page = None
         try:
+            page = await self.context.new_page()
+        except:
             page = await self.get_page()
+        try:
             encoded = urllib.parse.quote(name)
             search_url = f"https://weread.qq.com/web/search/global?keyword={encoded}"
             logger.info(f"搜索: name='{name}' encoded='{encoded}' url={search_url}")
@@ -691,6 +703,12 @@ class BrowserManager:
         except Exception as e:
             logger.warning(f"搜索书籍失败: {e}")
             return []
+        finally:
+            if page:
+                try:
+                    await page.close()
+                except:
+                    pass
 
     async def get_preview_screenshot(self) -> Optional[bytes]:
         try:
