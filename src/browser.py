@@ -590,12 +590,129 @@ class BrowserManager:
         """从书架页面获取用户所有书籍"""
         try:
             page = await self.get_page()
-            cookies = await self.context.cookies()
-            has_skey = any(c.get("name") == "wr_skey" for c in cookies)
-            logger.info(f"书架: wr_skey={'有' if has_skey else '无'}, cookies共{len(cookies)}个")
-            if not has_skey:
-                logger.warning("书架: 未登录，跳过")
-                return []
+            captured = {}
+
+            async def on_response(response):
+                if captured:
+                    return
+                try:
+                    body = await response.json()
+                    if not isinstance(body, dict):
+                        return
+                    for k, v in body.items():
+                        if isinstance(v, dict) and v.get("bookInfoMap"):
+                            captured["data"] = v["bookInfoMap"]
+                            return
+                        if isinstance(v, list) and v and isinstance(v[0], dict) and "bookId" in v[0]:
+                            captured["data"] = v
+                            return
+                except:
+                    pass
+
+            page.on("response", on_response)
+            try:
+                await page.goto("https://weread.qq.com/web/shelf", timeout=30000, wait_until="networkidle")
+                for i in range(10):
+                    await asyncio.sleep(1)
+                    if captured.get("data"):
+                        break
+                    try:
+                        await page.evaluate("window.scrollBy(0, 500)")
+                    except:
+                        pass
+            finally:
+                try:
+                    page.remove_listener("response", on_response)
+                except:
+                    pass
+
+            data = captured.get("data")
+            books = []
+            if isinstance(data, dict):
+                for bid, info in data.items():
+                    b = info if isinstance(info, dict) else {}
+                    books.append({
+                        "book_id": b.get("bookId", bid) or "",
+                        "name": b.get("title") or (b.get("book", {}) or {}).get("title", "") or "",
+                    })
+            elif isinstance(data, list):
+                for b in data:
+                    if isinstance(b, dict):
+                        books.append({
+                            "book_id": b.get("bookId") or b.get("id") or "",
+                            "name": b.get("title") or b.get("name") or "",
+                        })
+            if books:
+                logger.info(f"书架: {len(books)}本书")
+            else:
+                logger.warning(f"书架: 无结果")
+            return books or []
+        except Exception as e:
+            logger.warning(f"获取书架失败: {e}")
+            return []
+
+    async def search_book_by_name(self, name: str) -> list:
+        """按书名搜索书籍ID"""
+        try:
+            page = await self.get_page()
+            captured = {}
+
+            async def on_response(response):
+                if captured:
+                    return
+                try:
+                    body = await response.json()
+                    if not isinstance(body, dict):
+                        return
+                    for k, v in body.items():
+                        if isinstance(v, dict) and v.get("bookInfoMap"):
+                            captured["data"] = v["bookInfoMap"]
+                            return
+                        if isinstance(v, list) and v and isinstance(v[0], dict) and "bookId" in v[0]:
+                            captured["data"] = v
+                            return
+                except:
+                    pass
+
+            page.on("response", on_response)
+            try:
+                encoded = urllib.parse.quote(name)
+                url = f"https://weread.qq.com/web/search/global?keyword={encoded}"
+                logger.info(f"搜索: '{name}'")
+                await page.goto(url, timeout=30000, wait_until="networkidle")
+                await asyncio.sleep(3)
+            finally:
+                try:
+                    page.remove_listener("response", on_response)
+                except:
+                    pass
+
+            data = captured.get("data")
+            results = []
+            if isinstance(data, dict):
+                for bid, info in data.items():
+                    b = info if isinstance(info, dict) else {}
+                    results.append({
+                        "book_id": b.get("bookId", bid) or "",
+                        "name": b.get("title") or (b.get("book", {}) or {}).get("title", "") or "",
+                        "author": b.get("author") or "",
+                    })
+            elif isinstance(data, list):
+                for b in data:
+                    if isinstance(b, dict):
+                        results.append({
+                            "book_id": b.get("bookId") or b.get("id") or "",
+                            "name": b.get("title") or b.get("name") or "",
+                            "author": b.get("author") or "",
+                        })
+            if results:
+                logger.info(f"搜索: {len(results)}个结果")
+            else:
+                logger.warning(f"搜索: 无结果")
+            return results or []
+        except Exception as e:
+            logger.warning(f"搜索书籍失败: {e}")
+            return []
             await page.goto("https://weread.qq.com/web/shelf", timeout=30000, wait_until="networkidle")
             await asyncio.sleep(2)
             books = await page.evaluate("""() => {
