@@ -594,40 +594,59 @@ class BrowserManager:
             page = await self.get_page()
         try:
             await page.goto("https://weread.qq.com/web/shelf", timeout=30000, wait_until="networkidle")
-            logger.info(f"书架: URL={page.url}, title={await page.evaluate('document.title')}")
-            try:
-                await page.wait_for_selector('a[href*="/web/reader/"], a[href*="/reader/"]', timeout=15000)
-            except:
-                await page.wait_for_timeout(5000)
-            for i in range(10):
-                await asyncio.sleep(1)
-                await page.evaluate("window.scrollBy(0, 300)")
-                books = await page.evaluate("""() => {
-                    var links = document.querySelectorAll('a[href*="/web/reader/"], a[href*="/reader/"]');
-                    var seen = {}, result = [];
-                    links.forEach(function(a) {
-                        var m = a.href.match(/\\/(?:web\\/)?reader\\/([a-zA-Z0-9_]{10,})/);
-                        if (m && !seen[m[1]]) {
-                            seen[m[1]] = true;
-                            var name = '';
-                            var el = a;
-                            for (var d = 0; d < 5; d++) {
-                                var t = el.querySelector('[class*="title"], [class*="name"], .book_title');
-                                if (t) { name = t.textContent.trim(); break; }
-                                el = el.parentElement || el;
+            await asyncio.sleep(2)
+            books = await page.evaluate("""() => {
+                var result = [];
+                function tryInitState() {
+                    try {
+                        var st = window.__INITIAL_STATE__ || {};
+                        Object.keys(st).forEach(function(k) {
+                            var v = st[k];
+                            if (v && v.bookInfoMap) {
+                                Object.keys(v.bookInfoMap).forEach(function(id) {
+                                    var b = v.bookInfoMap[id];
+                                    result.push({ book_id: b.bookId || id || '', name: b.title || (b.book && b.book.title) || '', author: b.author || (b.book && b.book.author) || '' });
+                                });
                             }
-                            if (!name) name = a.textContent.trim();
-                            if (name.length > 80) name = name.substring(0, 80);
-                            result.push({ book_id: m[1], name: name, author: '' });
-                        }
-                    });
-                    return result;
-                }""")
-                if books and len(books) > 0:
-                    logger.info(f"书架: {len(books)}本书")
-                    break
-            if not books:
-                logger.warning(f"书架: 未找到, url={page.url}")
+                            if (v && v.books && Array.isArray(v.books)) {
+                                v.books.forEach(function(b) { result.push({ book_id: b.bookId || b.id || '', name: b.title || '' }); });
+                            }
+                        });
+                    } catch(e) {}
+                }
+                tryInitState();
+                if (result.length > 0) return result;
+                try {
+                    var nd = document.querySelector('#__NEXT_DATA__');
+                    if (nd) {
+                        var raw = JSON.parse(nd.textContent);
+                        var walk = function(o) {
+                            if (!o || typeof o !== 'object') return;
+                            if (o.bookInfoMap) {
+                                Object.keys(o.bookInfoMap).forEach(function(id) {
+                                    var b = o.bookInfoMap[id];
+                                    result.push({ book_id: b.bookId || id || '', name: b.title || '' });
+                                });
+                            }
+                            Object.values(o).forEach(walk);
+                        };
+                        walk(raw);
+                    }
+                } catch(e) {}
+                if (result.length > 0) return result;
+                var links = document.querySelectorAll('a[href*="/reader/"]');
+                links.forEach(function(a) {
+                    var m = a.href.match(/\\/(?:web\\/)?reader\\/([a-zA-Z0-9_]{10,})/);
+                    if (m) result.push({ book_id: m[1], name: a.textContent.trim().substring(0, 60), author: '' });
+                });
+                return result;
+            }""")
+            if books:
+                logger.info(f"书架: {len(books)}本书")
+                for b in books[:3]:
+                    logger.info(f"  {b['name']} id={b['book_id']}")
+            else:
+                logger.warning(f"书架: 无结果, url={page.url}")
             return books or []
         except Exception as e:
             logger.warning(f"获取书架失败: {e}")
@@ -650,41 +669,71 @@ class BrowserManager:
             url = f"https://weread.qq.com/web/search/global?keyword={encoded}"
             logger.info(f"搜索: '{name}' -> {url}")
             await page.goto(url, timeout=30000, wait_until="networkidle")
-            logger.info(f"搜索: URL={page.url}, title={await page.evaluate('document.title')}")
-            try:
-                await page.wait_for_selector('a[href*="/web/reader/"], a[href*="/reader/"], [class*="searchBook"], [class*="bookItem"]', timeout=15000)
-            except:
-                await page.wait_for_timeout(5000)
-            for i in range(8):
-                await asyncio.sleep(1)
-                results = await page.evaluate("""() => {
-                    var links = document.querySelectorAll('a[href*="/web/reader/"], a[href*="/reader/"]');
-                    var seen = {}, result = [];
-                    links.forEach(function(a) {
-                        var m = a.href.match(/\\/(?:web\\/)?reader\\/([a-zA-Z0-9_]{10,})/);
-                        if (m && !seen[m[1]]) {
-                            seen[m[1]] = true;
-                            var name = '';
-                            var el = a;
-                            for (var d = 0; d < 5; d++) {
-                                var t = el.querySelector('[class*="title"], [class*="name"]');
-                                if (t) { name = t.textContent.trim(); break; }
-                                el = el.parentElement || el;
-                            }
-                            if (!name) name = a.textContent.trim();
-                            if (name.length > 80) name = name.substring(0, 80);
-                            result.push({ book_id: m[1], name: name, author: '' });
+            await asyncio.sleep(2)
+            results = await page.evaluate("""() => {
+                var result = [];
+                try {
+                    var st = window.__INITIAL_STATE__ || {};
+                    Object.keys(st).forEach(function(k) {
+                        var v = st[k];
+                        if (v && v.bookInfoMap) {
+                            var map = v.bookInfoMap;
+                            Object.keys(map).forEach(function(id) {
+                                var b = map[id];
+                                result.push({
+                                    book_id: (b && b.bookId) || id || '',
+                                    name: (b && (b.title || (b.book && b.book.title))) || '',
+                                    author: (b && (b.author || (b.book && b.book.author))) || ''
+                                });
+                            });
+                        }
+                        if (v && v.books && Array.isArray(v.books)) {
+                            v.books.forEach(function(b) {
+                                result.push({
+                                    book_id: b.bookId || b.id || b.book_id || '',
+                                    name: b.title || b.name || (b.book && b.book.title) || '',
+                                    author: b.author || (b.book && b.book.author) || ''
+                                });
+                            });
                         }
                     });
-                    return result.slice(0, 10);
-                }""")
-                if results and len(results) > 0:
-                    logger.info(f"搜索: {len(results)}个结果")
-                    for r in results[:2]:
-                        logger.info(f"  {r['name']} id={r['book_id']}")
-                    break
-            if not results:
-                logger.warning(f"搜索: 未找到, url={page.url}")
+                } catch(e) {}
+                if (result.length > 0) return result.slice(0, 10);
+                try {
+                    var nd = document.querySelector('#__NEXT_DATA__');
+                    if (nd) {
+                        var raw = JSON.parse(nd.textContent);
+                        var walk = function(obj) {
+                            if (!obj || typeof obj !== 'object') return;
+                            if (obj.bookInfoMap) {
+                                Object.keys(obj.bookInfoMap).forEach(function(id) {
+                                    var b = obj.bookInfoMap[id];
+                                    result.push({
+                                        book_id: b.bookId || id || '',
+                                        name: (b && b.title) || '',
+                                        author: (b && b.author) || ''
+                                    });
+                                });
+                            }
+                            Object.values(obj).forEach(walk);
+                        };
+                        walk(raw);
+                    }
+                } catch(e) {}
+                if (result.length > 0) return result.slice(0, 10);
+                var cards = document.querySelectorAll('[data-bookid], [data-id], [class*="bookCard"], [class*="searchItem"], [class*="resultItem"]');
+                cards.forEach(function(c) {
+                    var bid = c.getAttribute('data-bookid') || c.getAttribute('data-id');
+                    if (bid) result.push({ book_id: bid, name: c.textContent.trim().substring(0, 60), author: '' });
+                });
+                return result.slice(0, 10);
+            }""")
+            if results and len(results) > 0:
+                logger.info(f"搜索: {len(results)}个结果")
+                for r in results[:3]:
+                    logger.info(f"  {r['name']} id={r['book_id']}")
+            else:
+                logger.warning(f"搜索: INITIAL_STATE/NEXT_DATA/DOM均无结果, url={page.url}")
             return results or []
         except Exception as e:
             logger.warning(f"搜索书籍失败: {e}")
