@@ -30,6 +30,11 @@ from src.session_manager import session_manager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    log_file = config.get("log.file")
+    if log_file:
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.setup("WeReadGears", log_file=str(log_path), level=config.get("log.level", "INFO"))
     logger.info("Web 服务启动")
     from src.user_data_manager import user_data_manager
     migrated = user_data_manager.migrate_from_old_structure()
@@ -764,6 +769,21 @@ async def test_notification():
     if success:
         return JSONResponse({"status": "ok", "message": "测试通知已发送"})
     return JSONResponse({"status": "error", "message": "通知发送失败，请检查 Token/Key 是否正确"})
+
+
+@app.get("/logs")
+async def get_logs():
+    """返回应用日志文件"""
+    try:
+        log_file = config.get("log.file", "shared/logs/weread.log")
+        log_path = Path(log_file)
+        if log_path.exists():
+            content = log_path.read_text(encoding="utf-8")
+            lines = content.split("\n")
+            return JSONResponse({"total_lines": len(lines), "content": "\n".join(lines[-300:])})
+        return JSONResponse({"error": "日志文件不存在"})
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
 
 
 @app.get("/health")
