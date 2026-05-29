@@ -385,14 +385,17 @@ async def get_api_reading_logs():
 
 @app.post("/logout")
 async def logout():
+    from src.user_data_manager import user_data_manager
     cookie_manager.clear()
-    cred_dir = Path("shared/credentials")
-    if cred_dir.exists():
-        for f in cred_dir.glob("*.json"):
+    for user_dir in user_data_manager.base_dir.iterdir():
+        if user_dir.is_dir():
             try:
-                f.unlink()
+                import shutil
+                shutil.rmtree(user_dir)
             except:
                 pass
+    browser_manager._current_user = ""
+    browser_manager._login_status = "idle"
     try:
         if browser_manager.context:
             await browser_manager.context.clear_cookies()
