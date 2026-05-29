@@ -597,151 +597,43 @@ class BrowserManager:
         """从书架页面获取用户所有书籍"""
         try:
             page = await self.get_page()
-            captured = {}
-
-            async def on_response(response):
-                if captured:
-                    return
+            logger.info(f"书架: 正在加载书架页面...")
+            await page.goto("https://weread.qq.com/web/shelf", timeout=30000, wait_until="domcontentloaded")
+            await asyncio.sleep(3)
+            for _ in range(5):
                 try:
-                    body = await response.json()
-                    if not isinstance(body, dict):
-                        return
-                    for k, v in body.items():
-                        if isinstance(v, dict) and v.get("bookInfoMap"):
-                            captured["data"] = v["bookInfoMap"]
-                            return
-                        if isinstance(v, list) and v and isinstance(v[0], dict) and "bookId" in v[0]:
-                            captured["data"] = v
-                            return
-                except:
-                    pass
-
-            page.on("response", on_response)
-            try:
-                await page.goto("https://weread.qq.com/web/shelf", timeout=30000, wait_until="networkidle")
-                for i in range(10):
+                    await page.evaluate("window.scrollBy(0, 800)")
                     await asyncio.sleep(1)
-                    if captured.get("data"):
-                        break
-                    try:
-                        await page.evaluate("window.scrollBy(0, 500)")
-                    except:
-                        pass
-            finally:
-                try:
-                    page.remove_listener("response", on_response)
                 except:
                     pass
 
-            data = captured.get("data")
-            books = []
-            if isinstance(data, dict):
-                for bid, info in data.items():
-                    b = info if isinstance(info, dict) else {}
-                    books.append({
-                        "book_id": b.get("bookId", bid) or "",
-                        "name": b.get("title") or (b.get("book", {}) or {}).get("title", "") or "",
-                    })
-            elif isinstance(data, list):
-                for b in data:
-                    if isinstance(b, dict):
-                        books.append({
-                            "book_id": b.get("bookId") or b.get("id") or "",
-                            "name": b.get("title") or b.get("name") or "",
-                        })
-            if books:
-                logger.info(f"书架: {len(books)}本书")
-            else:
-                logger.warning(f"书架: 未拦截到数据")
-            return books or []
-        except Exception as e:
-            logger.warning(f"获取书架失败: {e}")
-            return []
-
-    async def search_book_by_name(self, name: str) -> list:
-        """按书名搜索书籍ID"""
-        try:
-            page = await self.get_page()
-            captured = {}
-
-            async def on_response(response):
-                if captured:
-                    return
-                try:
-                    body = await response.json()
-                    if not isinstance(body, dict):
-                        return
-                    for k, v in body.items():
-                        if isinstance(v, dict) and v.get("bookInfoMap"):
-                            captured["data"] = v["bookInfoMap"]
-                            return
-                        if isinstance(v, list) and v and isinstance(v[0], dict) and "bookId" in v[0]:
-                            captured["data"] = v
-                            return
-                except:
-                    pass
-
-            page.on("response", on_response)
-            try:
-                encoded = urllib.parse.quote(name)
-                url = f"https://weread.qq.com/web/search/global?keyword={encoded}"
-                logger.info(f"搜索: '{name}'")
-                await page.goto(url, timeout=30000, wait_until="networkidle")
-                await asyncio.sleep(3)
-            finally:
-                try:
-                    page.remove_listener("response", on_response)
-                except:
-                    pass
-
-            data = captured.get("data")
-            results = []
-            if isinstance(data, dict):
-                for bid, info in data.items():
-                    b = info if isinstance(info, dict) else {}
-                    results.append({
-                        "book_id": b.get("bookId", bid) or "",
-                        "name": b.get("title") or (b.get("book", {}) or {}).get("title", "") or "",
-                        "author": b.get("author") or "",
-                    })
-            elif isinstance(data, list):
-                for b in data:
-                    if isinstance(b, dict):
-                        results.append({
-                            "book_id": b.get("bookId") or b.get("id") or "",
-                            "name": b.get("title") or b.get("name") or "",
-                            "author": b.get("author") or "",
-                        })
-            if results:
-                logger.info(f"搜索: {len(results)}个结果")
-            else:
-                logger.warning(f"搜索: 未拦截到数据")
-            return results or []
-        except Exception as e:
-            logger.warning(f"搜索书籍失败: {e}")
-            return []
-            await page.goto("https://weread.qq.com/web/shelf", timeout=30000, wait_until="networkidle")
-            await asyncio.sleep(2)
             books = await page.evaluate("""() => {
                 var result = [];
-                function tryInitState() {
-                    try {
-                        var st = window.__INITIAL_STATE__ || {};
-                        Object.keys(st).forEach(function(k) {
-                            var v = st[k];
-                            if (v && v.bookInfoMap) {
-                                Object.keys(v.bookInfoMap).forEach(function(id) {
-                                    var b = v.bookInfoMap[id];
-                                    result.push({ book_id: b.bookId || id || '', name: b.title || (b.book && b.book.title) || '', author: b.author || (b.book && b.book.author) || '' });
+                try {
+                    var st = window.__INITIAL_STATE__ || {};
+                    Object.keys(st).forEach(function(k) {
+                        var v = st[k];
+                        if (v && v.bookInfoMap) {
+                            Object.keys(v.bookInfoMap).forEach(function(id) {
+                                var b = v.bookInfoMap[id];
+                                result.push({
+                                    book_id: (b && b.bookId) || id || '',
+                                    name: (b && (b.title || (b.book && b.book.title))) || '',
+                                    author: (b && (b.author || (b.book && b.book.author))) || ''
                                 });
-                            }
-                            if (v && v.books && Array.isArray(v.books)) {
-                                v.books.forEach(function(b) { result.push({ book_id: b.bookId || b.id || '', name: b.title || '' }); });
-                            }
-                        });
-                    } catch(e) {}
-                }
-                tryInitState();
+                            });
+                        }
+                        if (v && v.books && Array.isArray(v.books)) {
+                            v.books.forEach(function(b) {
+                                result.push({
+                                    book_id: b.bookId || b.id || '',
+                                    name: b.title || (b.book && b.book.title) || '',
+                                    author: b.author || (b.book && b.book.author) || ''
+                                });
+                            });
+                        }
+                    });
+                } catch(e) {}
                 if (result.length > 0) return result;
                 try {
                     var nd = document.querySelector('#__NEXT_DATA__');
@@ -761,190 +653,132 @@ class BrowserManager:
                     }
                 } catch(e) {}
                 if (result.length > 0) return result;
-                var links = document.querySelectorAll('a[href*="/reader/"]');
+                var links = document.querySelectorAll('a[href*="/reader/"], a[href*="/bookDetail"]');
                 links.forEach(function(a) {
-                    var m = a.href.match(/\\/(?:web\\/)?reader\\/([a-zA-Z0-9_]{10,})/);
-                    if (m) result.push({ book_id: m[1], name: a.textContent.trim().substring(0, 60), author: '' });
+                    var m = a.href.match(/[?&](?:bid|bookId)=([a-zA-Z0-9_]+)/);
+                    if (m) {
+                        var txt = a.textContent.trim().substring(0, 60);
+                        if (txt) result.push({ book_id: m[1], name: txt, author: '' });
+                    }
                 });
                 return result;
             }""")
+
             if books:
-                logger.info(f"书架: {len(books)}本书")
-                for b in books[:3]:
-                    logger.info(f"  {b['name']} id={b['book_id']}")
+                logger.info(f"书架: 获取到{len(books)}本书")
+                for b in books[:5]:
+                    logger.info(f"  [{b['book_id']}] {b['name']}")
             else:
-                body_text = await page.evaluate("document.body ? document.body.innerText.substring(0, 200) : ''")
-                logger.warning(f"书架: 无结果, url={page.url}, body={body_text}")
+                url = page.url
+                title = await page.title()
+                body_preview = await page.evaluate("document.body ? document.body.innerText.substring(0, 300) : ''")
+                logger.warning(f"书架: 无结果 url={url} title={title} body={body_preview}")
             return books or []
         except Exception as e:
             logger.warning(f"获取书架失败: {e}")
             return []
 
     async def search_book_by_name(self, name: str) -> list:
-        """按书名搜索书籍ID"""
+        """按书名搜索，返回bookId列表"""
         try:
             page = await self.get_page()
-            cookies = await self.context.cookies()
-            has_skey = any(c.get("name") == "wr_skey" for c in cookies)
-            logger.info(f"搜索: wr_skey={'有' if has_skey else '无'}, cookies共{len(cookies)}个")
-            if not has_skey:
-                logger.warning("搜索: 未登录，跳过")
-                return []
             encoded = urllib.parse.quote(name)
             url = f"https://weread.qq.com/web/search/global?keyword={encoded}"
-            logger.info(f"搜索: '{name}' -> {url}")
-            await page.goto(url, timeout=30000, wait_until="networkidle")
-            await asyncio.sleep(2)
+            logger.info(f"搜索: 正在导航到 {url}")
+            await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+            await asyncio.sleep(3)
+            for _ in range(3):
+                try:
+                    await page.evaluate("window.scrollBy(0, 500)")
+                    await asyncio.sleep(1)
+                except:
+                    pass
+
             results = await page.evaluate("""() => {
                 var result = [];
+                var seen = new Set();
                 try {
                     var st = window.__INITIAL_STATE__ || {};
                     Object.keys(st).forEach(function(k) {
                         var v = st[k];
                         if (v && v.bookInfoMap) {
                             Object.keys(v.bookInfoMap).forEach(function(id) {
-                                var b = v.bookInfoMap[id];
-                                result.push({
-                                    book_id: (b && b.bookId) || id || '',
-                                    name: (b && (b.title || (b.book && b.book.title))) || '',
-                                    author: (b && (b.author || (b.book && b.book.author))) || ''
-                                });
-                            });
-                        }
-                        if (v && v.books && Array.isArray(v.books)) {
-                            v.books.forEach(function(b) {
-                                result.push({
-                                    book_id: b.bookId || b.id || b.book_id || '',
-                                    name: b.title || b.name || (b.book && b.book.title) || '',
-                                    author: b.author || (b.book && b.book.author) || ''
-                                });
-                            });
-                        }
-                    });
-                } catch(e) {}
-                if (result.length > 0) return result.slice(0, 10);
-                try {
-                    var nd = document.querySelector('#__NEXT_DATA__');
-                    if (nd) {
-                        var raw = JSON.parse(nd.textContent);
-                        var walk = function(obj) {
-                            if (!obj || typeof obj !== 'object') return;
-                            if (obj.bookInfoMap) {
-                                Object.keys(obj.bookInfoMap).forEach(function(id) {
-                                    var b = obj.bookInfoMap[id];
-                                    result.push({ book_id: b.bookId || id || '', name: b.title || '' });
-                                });
-                            }
-                            Object.values(obj).forEach(walk);
-                        };
-                        walk(raw);
-                    }
-                } catch(e) {}
-                if (result.length > 0) return result.slice(0, 10);
-                var cards = document.querySelectorAll('[data-bookid], [data-id], [class*="bookCard"], [class*="searchItem"], [class*="resultItem"]');
-                cards.forEach(function(c) {
-                    var bid = c.getAttribute('data-bookid') || c.getAttribute('data-id');
-                    if (bid) result.push({ book_id: bid, name: c.textContent.trim().substring(0, 60), author: '' });
-                });
-                return result.slice(0, 10);
-            }""")
-            if results and len(results) > 0:
-                logger.info(f"搜索: {len(results)}个结果")
-            else:
-                body_text = await page.evaluate("document.body ? document.body.innerText.substring(0, 200) : ''")
-                logger.warning(f"搜索: 无结果, url={page.url}, body={body_text}")
-            return results or []
-        except Exception as e:
-            logger.warning(f"搜索书籍失败: {e}")
-            return []
-
-    async def search_book_by_name(self, name: str) -> list:
-        """按书名搜索书籍ID"""
-        page = None
-        try:
-            page = await self.context.new_page()
-        except:
-            page = await self.get_page()
-        try:
-            encoded = urllib.parse.quote(name)
-            url = f"https://weread.qq.com/web/search/global?keyword={encoded}"
-            logger.info(f"搜索: '{name}' -> {url}")
-            await page.goto(url, timeout=30000, wait_until="networkidle")
-            await asyncio.sleep(2)
-            results = await page.evaluate("""() => {
-                var result = [];
-                try {
-                    var st = window.__INITIAL_STATE__ || {};
-                    Object.keys(st).forEach(function(k) {
-                        var v = st[k];
-                        if (v && v.bookInfoMap) {
-                            var map = v.bookInfoMap;
-                            Object.keys(map).forEach(function(id) {
-                                var b = map[id];
-                                result.push({
-                                    book_id: (b && b.bookId) || id || '',
-                                    name: (b && (b.title || (b.book && b.book.title))) || '',
-                                    author: (b && (b.author || (b.book && b.book.author))) || ''
-                                });
-                            });
-                        }
-                        if (v && v.books && Array.isArray(v.books)) {
-                            v.books.forEach(function(b) {
-                                result.push({
-                                    book_id: b.bookId || b.id || b.book_id || '',
-                                    name: b.title || b.name || (b.book && b.book.title) || '',
-                                    author: b.author || (b.book && b.book.author) || ''
-                                });
-                            });
-                        }
-                    });
-                } catch(e) {}
-                if (result.length > 0) return result.slice(0, 10);
-                try {
-                    var nd = document.querySelector('#__NEXT_DATA__');
-                    if (nd) {
-                        var raw = JSON.parse(nd.textContent);
-                        var walk = function(obj) {
-                            if (!obj || typeof obj !== 'object') return;
-                            if (obj.bookInfoMap) {
-                                Object.keys(obj.bookInfoMap).forEach(function(id) {
-                                    var b = obj.bookInfoMap[id];
+                                if (!seen.has(id)) {
+                                    seen.add(id);
+                                    var b = v.bookInfoMap[id];
                                     result.push({
-                                        book_id: b.bookId || id || '',
-                                        name: (b && b.title) || '',
-                                        author: (b && b.author) || ''
+                                        book_id: (b && b.bookId) || id || '',
+                                        name: (b && (b.title || (b.book && b.book.title))) || '',
+                                        author: (b && (b.author || (b.book && b.book.author))) || ''
                                     });
+                                }
+                            });
+                        }
+                        if (v && v.books && Array.isArray(v.books)) {
+                            v.books.forEach(function(b) {
+                                var bid = b.bookId || b.id || '';
+                                if (bid && !seen.has(bid)) {
+                                    seen.add(bid);
+                                    result.push({
+                                        book_id: bid,
+                                        name: b.title || b.name || (b.book && b.book.title) || '',
+                                        author: b.author || (b.book && b.book.author) || ''
+                                    });
+                                }
+                            });
+                        }
+                    });
+                } catch(e) {}
+                if (result.length > 0) return result.slice(0, 10);
+                try {
+                    var nd = document.querySelector('#__NEXT_DATA__');
+                    if (nd) {
+                        var raw = JSON.parse(nd.textContent);
+                        var walk = function(o) {
+                            if (!o || typeof o !== 'object') return;
+                            if (o.bookInfoMap) {
+                                Object.keys(o.bookInfoMap).forEach(function(id) {
+                                    if (!seen.has(id)) {
+                                        seen.add(id);
+                                        var b = o.bookInfoMap[id];
+                                        result.push({ book_id: b.bookId || id || '', name: b.title || '' });
+                                    }
                                 });
                             }
-                            Object.values(obj).forEach(walk);
+                            Object.values(o).forEach(walk);
                         };
                         walk(raw);
                     }
                 } catch(e) {}
                 if (result.length > 0) return result.slice(0, 10);
-                var cards = document.querySelectorAll('[data-bookid], [data-id], [class*="bookCard"], [class*="searchItem"], [class*="resultItem"]');
-                cards.forEach(function(c) {
-                    var bid = c.getAttribute('data-bookid') || c.getAttribute('data-id');
-                    if (bid) result.push({ book_id: bid, name: c.textContent.trim().substring(0, 60), author: '' });
+                var links = document.querySelectorAll('a[href*="/reader/"], a[href*="/bookDetail"]');
+                links.forEach(function(a) {
+                    var m = a.href.match(/[?&](?:bid|bookId)=([a-zA-Z0-9_]+)/);
+                    if (m && !seen.has(m[1])) {
+                        seen.add(m[1]);
+                        var txt = a.textContent.trim().substring(0, 60);
+                        result.push({ book_id: m[1], name: txt || '', author: '' });
+                    }
                 });
                 return result.slice(0, 10);
             }""")
-            if results and len(results) > 0:
-                logger.info(f"搜索: {len(results)}个结果")
-                for r in results[:3]:
-                    logger.info(f"  {r['name']} id={r['book_id']}")
+
+            if results:
+                logger.info(f"搜索 '{name}': 找到{len(results)}个结果")
+                for r in results[:5]:
+                    logger.info(f"  [{r['book_id']}] {r['name']} - {r['author']}")
             else:
-                logger.warning(f"搜索: INITIAL_STATE/NEXT_DATA/DOM均无结果, url={page.url}")
+                url = page.url
+                title = await page.title()
+                body_text = await page.evaluate("document.body ? document.body.innerText.substring(0, 500) : ''")
+                logger.warning(f"搜索 '{name}': 无结果 url={page.url} title={title} body={body_text}")
+                a_count = await page.evaluate('document.querySelectorAll("a").length')
+                a_count = await page.evaluate('document.querySelectorAll("a").length')
+                logger.warning(f"  页面标题: {page_title}, 链接数: {a_count}")
             return results or []
         except Exception as e:
             logger.warning(f"搜索书籍失败: {e}")
             return []
-        finally:
-            if page:
-                try:
-                    await page.close()
-                except:
-                    pass
 
     async def get_preview_screenshot(self) -> Optional[bytes]:
         try:

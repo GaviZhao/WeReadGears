@@ -504,8 +504,23 @@ async def search_debug(q: str = ""):
             "init_state_keys": init_keys,
             "body_preview": body_text,
             "json_responses": jsons,
-            "screenshot_base64": "data:image/png;base64," + screenshot_b64,
+            "screenshot": "data:image/png;base64," + screenshot_b64,
         })
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
+
+
+@app.get("/browser/search-preview")
+async def search_preview(q: str = ""):
+    """直接返回搜索页截图"""
+    try:
+        from urllib.parse import quote
+        page = await browser_manager.get_page()
+        keyword = q or "明朝那些事儿"
+        await page.goto(f"https://weread.qq.com/web/search/global?keyword={quote(keyword)}", timeout=30000, wait_until="networkidle")
+        await asyncio.sleep(3)
+        screenshot = await page.screenshot(type="png")
+        return Response(content=screenshot, media_type="image/png")
     except Exception as e:
         return JSONResponse({"error": str(e)})
 
