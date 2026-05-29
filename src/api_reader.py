@@ -145,7 +145,9 @@ class ApiReader:
                     continue
                 if kl.startswith("sec-"):
                     continue
-                self.headers[k] = v
+                safe_v = "".join(c for c in str(v) if ord(c) < 128)
+                if safe_v:
+                    self.headers[k] = safe_v
         else:
             self.headers = dict(self.DEFAULT_HEADERS)
 
