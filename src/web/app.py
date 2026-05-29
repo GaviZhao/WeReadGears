@@ -127,7 +127,9 @@ async def index(request: Request):
     daemon_config = config.get("daemon", {})
     history_config = config.get("history", {})
 
-    cookies_valid = len(cookie_manager.get_all_valid_users()) > 0
+    browser_status = browser_manager.get_login_status()
+    logged_in_user = browser_status.get("user") if browser_status.get("status") == "success" else None
+    cookies_valid = logged_in_user is not None
     valid_users = cookie_manager.get_all_valid_users()
     cookies_info = cookie_manager.get_expiry_info(valid_users[0]) if valid_users else None
     cron = schedule_config.get("cron_expression", "0 9,12,18 * * *")
@@ -135,8 +137,6 @@ async def index(request: Request):
 
     users = config.get_users()
     statistics = history_manager.get_statistics()
-    browser_status = browser_manager.get_login_status()
-    logged_in_user = browser_status.get("user") if browser_status.get("status") == "success" else None
 
     return templates.TemplateResponse("index.html", {
         "request": request,
