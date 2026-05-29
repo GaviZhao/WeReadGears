@@ -297,9 +297,13 @@
             <!-- 书籍配置 -->
             <div class="card">
                 <div class="card-title">书籍配置</div>
-                <p style="color:#64748b;font-size:.85rem;margin-bottom:16px">不配置则随机浏览书架</p>
+                <p style="color:#64748b;font-size:.85rem;margin-bottom:16px">不配置则自动从书架导入</p>
                 <div id="bookList"></div>
-                <button type="button" class="add-btn" onclick="addBook()">+ 添加书籍</button>
+                <div style="display:flex;gap:8px;margin-top:12px">
+                    <button type="button" class="add-btn" onclick="addBook()">+ 添加书籍</button>
+                    <button type="button" class="add-btn" onclick="importShelf()" style="background:rgba(6,182,212,.1);color:#06b6d4">从书架导入</button>
+                </div>
+                <div id="searchResults" style="margin-top:12px"></div>
                 <input type="hidden" name="books_json" id="booksJson" value="[]">
             </div>
 
@@ -955,7 +959,7 @@ function startProgressPoll() {
     }
     setTimeout(refreshBackend, 2000);
     progressPoll = setInterval(updateUI, 1000);
-    logPoll = setInterval(refreshBackend, 3000);
+    logPoll = setInterval(refreshBackend, 5000);
 }
 
 // === 测试通知 ===
@@ -1012,21 +1016,78 @@ window.updateTime = updateTime;
 // === 书籍管理 ===
 function addBook() { books.push({name: '', book_id: '', chapters: []}); renderBooks(); }
 function removeBook(i) { books.splice(i, 1); renderBooks(); }
-function updateBook(i, f, v) { books[i][f] = v; syncBooks(); }
+function updateBook(i, f, v) { books[i][f] = v; syncBooks(); if (f === 'name' && v) searchBookByName(i, v); }
 function syncBooks() { document.getElementById('booksJson').value = JSON.stringify(books); }
 function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function renderBooks() {
     var c = document.getElementById('bookList');
-    if (!books.length) { c.innerHTML = '<div class="empty-state"><div class="empty-icon">&#x1F4DA;</div><div class="empty-text">暂无书籍，将随机浏览书架</div></div>'; syncBooks(); return; }
+    if (!books.length) { c.innerHTML = '<div class="empty-state"><div class="empty-icon">&#x1F4DA;</div><div class="empty-text">暂无书籍，点击添加或从书架导入</div></div>'; syncBooks(); return; }
     c.innerHTML = books.map(function(b, bi) {
         var name = esc(b.name || ''), bid = esc(b.book_id || '');
-        return '<div class="book-item"><div class="book-header"><span class="book-title">书籍 ' + (bi + 1) + '</span><button type="button" class="ch-del-btn" onclick="removeBook(' + bi + ')" style="width:auto;padding:4px 12px;font-size:.8rem">删除</button></div><div class="form-group"><label>名称</label><input type="text" value="' + name + '" onchange="updateBook(' + bi + ',\'name\',this.value)"></div><div class="form-group"><label>书籍ID</label><input type="text" value="' + bid + '" onchange="updateBook(' + bi + ',\'book_id\',this.value)"></div></div>';
+        return '<div class="book-item"><div class="book-header"><span class="book-title">书籍 ' + (bi + 1) + '</span><button type="button" class="ch-del-btn" onclick="removeBook(' + bi + ')" style="width:auto;padding:4px 12px;font-size:.8rem">删除</button></div><div class="form-group"><label>名称 <span id="searchHint' + bi + '" style="color:#06b6d4;font-size:.75rem;display:none">搜索中...</span></label><input type="text" value="' + name + '" onchange="updateBook(' + bi + ',\'name\',this.value)" placeholder="输入书名自动搜索ID"></div><div class="form-group"><label>书籍ID</label><input type="text" value="' + bid + '" id="bookIdInput' + bi + '" onchange="updateBook(' + bi + ',\'book_id\',this.value)"></div></div>';
     }).join('');
     syncBooks();
 }
 window.addBook = addBook;
 window.removeBook = removeBook;
 window.updateBook = updateBook;
+
+var searchTimer = null;
+function searchBookByName(i, name) {
+    if (searchTimer) clearTimeout(searchTimer);
+    var hint = document.getElementById('searchHint' + i);
+    if (hint) { hint.style.display = 'inline'; hint.textContent = '搜索中...'; }
+    searchTimer = setTimeout(function() {
+        fetch('/api/search-books?q=' + encodeURIComponent(name)).then(function(r) { return r.json(); }).then(function(d) {
+            if (d.results && d.results.length > 0) {
+                if (hint) { hint.textContent = '找到' + d.results.length + '个结果'; }
+                var inp = document.getElementById('bookIdInput' + i);
+                if (inp && !inp.value) {
+                    inp.value = d.results[0].book_id;
+                    updateBook(i, 'book_id', d.results[0].book_id);
+                }
+                var sr = document.getElementById('searchResults');
+                if (sr) {
+                    sr.innerHTML = d.results.slice(0, 5).map(function(r) {
+                        return '<div style="padding:8px 12px;background:rgba(255,255,255,.03);border-radius:8px;margin-bottom:6px;cursor:pointer;transition:background .2s" onmouseover="this.style.background=\'rgba(6,182,212,.1)\'" onmouseout="this.style.background=\'rgba(255,255,255,.03)\'" onclick="updateBook(' + i + ',\'book_id\',\'' + r.book_id + '\');document.getElementById(\'bookIdInput' + i + '\').value=\'' + r.book_id + '\';document.getElementById(\'searchResults\').innerHTML=\'\'">' +
+                        '<span style="color:#e2e8f0">' + esc(r.name) + '</span> ' +
+                        (r.author ? '<span style="color:#64748b;font-size:.85rem"> - ' + esc(r.author) + '</span>' : '') +
+                        '<span style="color:#64748b;font-size:.75rem;float:right">' + esc(r.book_id) + '</span></div>';
+                    }).join('');
+                }
+            } else {
+                if (hint) { hint.textContent = '未找到'; }
+            }
+        }).catch(function() {
+            if (hint) { hint.textContent = '搜索失败'; }
+        });
+    }, 600);
+}
+window.searchBookByName = searchBookByName;
+
+async function importShelf() {
+    var btn = event.target;
+    var orig = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;margin:0;border-width:2px"></span> 导入中...';
+    try {
+        var r = await fetch('/api/shelf-books'); var d = await r.json();
+        if (!d.books || !d.books.length) { showToast('书架为空或获取失败', 'error'); return; }
+        var existing = {};
+        books.forEach(function(b) { if (b.book_id) existing[b.book_id] = true; });
+        var added = 0;
+        d.books.forEach(function(b) {
+            if (!existing[b.book_id]) {
+                books.push({name: b.name || '', book_id: b.book_id || '', chapters: []});
+                existing[b.book_id] = true;
+                added++;
+            }
+        });
+        renderBooks();
+        showToast('导入 ' + added + ' 本新书', 'success');
+    } catch(e) { showToast('导入失败: ' + e, 'error'); }
+    finally { btn.disabled = false; btn.innerHTML = orig; }
+}
+window.importShelf = importShelf;
 
 // === 添加用户 ===
 function showAddUser() {

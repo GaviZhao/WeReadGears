@@ -423,6 +423,20 @@ async def get_captured_info():
     return JSONResponse(browser_manager.get_captured_info())
 
 
+@app.get("/api/shelf-books")
+async def get_shelf_books():
+    books = await browser_manager.fetch_shelf_books()
+    return JSONResponse({"books": books})
+
+
+@app.get("/api/search-books")
+async def search_books(q: str = ""):
+    if not q.strip():
+        return JSONResponse({"results": []})
+    results = await browser_manager.search_book_by_name(q.strip())
+    return JSONResponse({"results": results})
+
+
 @app.get("/reader-status")
 async def get_reader_status():
     return JSONResponse(reader.get_status())

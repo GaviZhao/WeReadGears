@@ -440,7 +440,7 @@ class ApiReader:
                 if active_seconds >= target_seconds:
                     break
 
-                if on_progress and active_seconds - (self._last_progress_time or 0) >= 10:
+                if on_progress and active_seconds - (self._last_progress_time or 0) >= 30:
                     active_min = active_seconds // 60
                     active_sec = active_seconds % 60
                     pct = min(int((active_seconds / target_seconds) * 100), 100)

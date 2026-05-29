@@ -143,6 +143,14 @@ class Reader:
         logger.info(f"开始阅读，目标时长: {target_minutes} 分钟")
 
         books = self._get_books_config()
+        if not books:
+            logger.info("无配置书籍，自动从书架获取...")
+            shelf_books = await browser_manager.fetch_shelf_books()
+            if shelf_books:
+                for b in shelf_books:
+                    if b.get("book_id"):
+                        books.append({"name": b.get("name",""), "book_id": b["book_id"], "chapters": []})
+                logger.info(f"从书架获取 {len(books)} 本书")
         if books:
             logger.info(f"已配置 {len(books)} 本书籍")
 

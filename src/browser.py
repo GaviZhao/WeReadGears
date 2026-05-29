@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import urllib.parse
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -584,6 +585,96 @@ class BrowserManager:
             self._login_error = str(e)
             self._login_status = "failed"
             return {"status": "error", "message": str(e)}
+
+    async def fetch_shelf_books(self) -> list:
+        """从书架页面获取用户所有书籍信息"""
+        try:
+            page = await self.get_page()
+            await page.goto("https://weread.qq.com/web/shelf", timeout=15000, wait_until="domcontentloaded")
+            await asyncio.sleep(3)
+            books = await page.evaluate("""() => {
+                try {
+                    const data = window.__INITIAL_STATE__ || {};
+                    if (data.shelf && data.shelf.bookInfoMap) {
+                        const map = data.shelf.bookInfoMap;
+                        return Object.values(map).map(function(b) {
+                            return {
+                                book_id: b.bookId || '',
+                                name: b.title || b.book?.title || '',
+                                author: b.author || b.book?.author || '',
+                                cover: b.cover || b.book?.cover || ''
+                            };
+                        });
+                    }
+                } catch(e) {}
+                const cards = document.querySelectorAll('[data-bookid], .shelfBookItem, .bookItem, [class*="bookCard"]');
+                if (cards.length > 0) {
+                    var result = [];
+                    cards.forEach(function(c) {
+                        var id = c.getAttribute('data-bookid');
+                        if (id) result.push({ book_id: id, name: '', author: '', cover: '' });
+                    });
+                    return result;
+                }
+                var links = document.querySelectorAll('a[href*="/web/reader/"]');
+                var result = [];
+                links.forEach(function(a) {
+                    var m = a.href.match(/\\/web\\/reader\\/([a-zA-Z0-9_]+)/);
+                    if (m) result.push({ book_id: m[1], name: '', author: '', cover: '' });
+                });
+                return result;
+            }""")
+            if books:
+                logger.info(f"书架获取: {len(books)} 本书")
+                for b in books:
+                    logger.info(f"  书名: {b.get('name','')}  ID: {b.get('book_id','')}")
+            return books or []
+        except Exception as e:
+            logger.warning(f"获取书架失败: {e}")
+            return []
+
+    async def search_book_by_name(self, name: str) -> list:
+        """按书名搜索并返回匹配的书籍ID列表"""
+        try:
+            page = await self.get_page()
+            search_url = f"https://weread.qq.com/web/search/global?keyword={urllib.parse.quote(name)}"
+            await page.goto(search_url, timeout=15000, wait_until="domcontentloaded")
+            await asyncio.sleep(3)
+            results = await page.evaluate("""() => {
+                try {
+                    const data = window.__INITIAL_STATE__ || {};
+                    if (data.search && data.search.bookInfoMap) {
+                        const map = data.search.bookInfoMap;
+                        return Object.values(map).map(function(b) {
+                            return {
+                                book_id: b.bookId || '',
+                                name: b.title || b.book?.title || '',
+                                author: b.author || b.book?.author || '',
+                                cover: b.cover || b.book?.cover || ''
+                            };
+                        });
+                    }
+                } catch(e) {}
+                var links = document.querySelectorAll('a[href*="/web/reader/"]');
+                var result = [];
+                var seen = {};
+                links.forEach(function(a) {
+                    var m = a.href.match(/\\/web\\/reader\\/([a-zA-Z0-9_]+)/);
+                    var id = m ? m[1] : null;
+                    if (id && !seen[id]) {
+                        seen[id] = true;
+                        var title = a.textContent.trim() || a.closest('[class*="item"]')?.textContent?.trim() || '';
+                        result.push({ book_id: id, name: title.substring(0, 50), author: '' });
+                    }
+                });
+                return result.slice(0, 10);
+            }""")
+            if results:
+                logger.info(f"搜索 '{name}': 找到 {len(results)} 个结果")
+            return results or []
+        except Exception as e:
+            logger.warning(f"搜索书籍失败: {e}")
+            return []
 
     async def get_preview_screenshot(self) -> Optional[bytes]:
         try:

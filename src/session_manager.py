@@ -83,7 +83,7 @@ class SessionManager:
         self.semaphore = asyncio.Semaphore(max_concurrent)
         self._is_running = False
         self._progress = {}
-        self._logs = deque(maxlen=200)
+        self._logs = deque(maxlen=100)
         self._active_session: Optional[UserSession] = None
         self._has_failed = False
         self._fail_reason = ""
@@ -152,7 +152,7 @@ class SessionManager:
 
     async def run_multi_user(self) -> List[SessionResult]:
         """运行多用户会话"""
-        self._logs = deque(maxlen=200)
+        self._logs = deque(maxlen=100)
         self._is_running = True
         self._has_failed = False
         self._fail_reason = ""
