@@ -631,9 +631,12 @@ if (previewWrap) {
     previewWrap.addEventListener('click', async function(e) {
         if (e.button !== 0 || isDragging) return;
         var r = this.getBoundingClientRect();
-        var rx = (e.clientX - r.left) / zoom - panX;
-        var ry = (e.clientY - r.top) / zoom - panY;
-        try { await fetch('/browser/click', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({x: Math.round(rx / r.width * 1920), y: Math.round(ry / r.height * 1080)})}); } catch(e) {}
+        var rx = (e.clientX - r.left - panX) / zoom;
+        var ry = (e.clientY - r.top - panY) / zoom;
+        var x = Math.round(rx / r.width * 1920);
+        var y = Math.round(ry / r.height * 1080);
+        console.log('click preview: clientX=' + e.clientX + ' clientY=' + e.clientY + ' rect=' + JSON.stringify({l:r.left,t:r.top,w:r.width,h:r.height}) + ' zoom=' + zoom + ' pan=' + panX + ',' + panY + ' rx=' + rx + ' ry=' + ry + ' click=' + x + ',' + y);
+        try { await fetch('/browser/click', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({x: x, y: y})}); } catch(e) {}
     });
 }
 window.addEventListener('mousemove', function(e) { if (!isDragging) return; panX = panStartX + (e.clientX - dragStartX); panY = panStartY + (e.clientY - dragStartY); adjustZoom(0); });

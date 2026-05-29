@@ -738,8 +738,14 @@ async def browser_click(request: Request):
     x = data.get("x", 0)
     y = data.get("y", 0)
     page = await browser_manager.get_page()
-    await page.mouse.click(x, y)
-    return JSONResponse({"status": "ok"})
+    vp = page.viewport_size
+    logger.info(f"点击: 接收坐标=({x},{y}) 视口={vp}")
+    try:
+        await page.mouse.click(x, y, force=True)
+        logger.info(f"点击成功: ({x},{y})")
+    except Exception as e:
+        logger.warning(f"点击失败: {e}")
+    return JSONResponse({"status": "ok", "clicked": {"x": x, "y": y}, "viewport": vp})
 
 
 @app.post("/browser/back")
