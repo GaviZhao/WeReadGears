@@ -1,11 +1,13 @@
 import asyncio
-from typing import Callable, Optional
+import logging
+from datetime import datetime, timedelta
+from typing import Optional, Callable
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from datetime import datetime, timedelta
 
+from src.utils.logger import logger
+from src.config import config
 from src.utils.logger import logger
 from src.config import config
 
@@ -26,14 +28,47 @@ class TaskScheduler:
         except Exception:
             return datetime.now()
 
-    def _calc_next_sunday_10am(self) -> datetime:
-        now = self._get_now()
-        weekday = now.weekday()
-        days_until_sunday = (6 - weekday) % 7
-        if days_until_sunday == 0 and now.hour >= 10:
-            days_until_sunday = 7
-        next_sunday = now.replace(hour=10, minute=0, second=0, microsecond=0) + timedelta(days=days_until_sunday)
-        return next_sunday
+    def _get_weekly_day(self) -> int:
+        """读取用户在 config 里配置的星期几 (0=周一 … 6=周日),越界或缺失则默认周日"""
+        try:
+            d = int(config.get("notification.weekly_reward_day", 6))
+            if 0 <= d <= 6:
+                return d
+        except Exception:
+            pass
+        return 6
+
+    def _get_weekly_time(self) -> tuple:
+        """读取用户在 config 里配置的时间 (HH:MM),越界或缺失则默认 10:00"""
+        try:
+            t = str(config.get("notification.weekly_reward_time", "10:00")).strip()
+            h, m = t.split(":", 1)
+            h, m = int(h), int(m)
+            if 0 <= h <= 23 and 0 <= m <= 59:
+                return h, m
+        except Exception:
+            pass
+        return 10, 0
+
+    def _next_weekly_text(self) -> str:
+        """给人类读的'下次提醒时间'字符串"""
+        day = self._get_weekly_day()
+        h, m = self._get_weekly_time()
+        day_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+        return f"{day_names[day]} {h:02d}:{m:02d}"
+
+    def _build_weekly_trigger(self) -> CronTrigger:
+        """构造每周奖励的 CronTrigger(根据用户配置 day_of_week + hour + minute)"""
+        tz_name = config.get("schedule.timezone", "Asia/Shanghai")
+        day = self._get_weekly_day()
+        h, m = self._get_weekly_time()
+        return CronTrigger(
+            day_of_week=str(day),  # APScheduler 接受 0-6
+            hour=h,
+            minute=m,
+            second=0,
+            timezone=tz_name,
+        )
 
     def set_task(self, task_func: Callable):
         self._task_func = task_func
@@ -71,6 +106,22 @@ class TaskScheduler:
             replace_existing=True
         )
 
+        # 如果之前 register_weekly_reminder 在 scheduler 还是 None 时被调用过,
+        # 现在 self.scheduler 已经创建,自动注册每周奖励任务
+        if self._weekly_reminder_func is not None and config.get("notification.weekly_reward_reminder", True):
+            self.scheduler.add_job(
+                self._run_weekly_reminder,
+                trigger=self._build_weekly_trigger(),
+                id="weekly_reward_reminder",
+                replace_existing=True,
+            )
+            try:
+                job = self.scheduler.get_job("weekly_reward_reminder")
+                if job and job.next_run_time:
+                    logger.info(f"每周奖励提醒已自动注册 → 每周 {self._next_weekly_text()},下次: {job.next_run_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            except Exception:
+                pass
+
         self.scheduler.start()
         self.is_running = True
 
@@ -92,40 +143,63 @@ class TaskScheduler:
             return
         if not self._weekly_reminder_func:
             return
-        logger.info("发送每周阅读奖励提醒")
+        logger.info(f"发送每周阅读奖励提醒 (时间: {self._next_weekly_text()})")
         try:
             await self._weekly_reminder_func()
         except Exception as e:
             logger.error(f"每周提醒发送失败: {e}")
-        finally:
-            next_run = self._calc_next_sunday_10am()
-            if self.scheduler:
-                try:
-                    self.scheduler.reschedule_job(
-                        "weekly_reward_reminder",
-                        trigger=DateTrigger(run_date=next_run)
-                    )
-                    logger.info(f"下次每周提醒: {next_run.strftime('%Y-%m-%d %H:%M')} (周日)")
-                except Exception as e:
-                    logger.error(f"重新调度每周提醒失败: {e}")
 
     def register_weekly_reminder(self, func):
         self._weekly_reminder_func = func
         if not config.get("notification.weekly_reward_reminder", True):
             logger.info("每周奖励提醒未启用，不注册")
             return
-        if self.scheduler:
-            next_run = self._calc_next_sunday_10am()
-            today = self._get_now()
-            day_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-            logger.info(f"今天是 {day_names[today.weekday()]}，计算下个周日为 {next_run.strftime('%m月%d日')} 10:00")
-            self.scheduler.add_job(
-                self._run_weekly_reminder,
-                trigger=DateTrigger(run_date=next_run),
-                id="weekly_reward_reminder",
-                replace_existing=True
-            )
-            logger.info(f"每周阅读奖励提醒已注册，首次触发: {next_run.strftime('%Y-%m-%d %H:%M')}")
+        if not self.scheduler:
+            # 调度器还没启动,延迟到 start() 时统一注册
+            return
+        trigger = self._build_weekly_trigger()
+        self.scheduler.add_job(
+            self._run_weekly_reminder,
+            trigger=trigger,
+            id="weekly_reward_reminder",
+            replace_existing=True,
+        )
+        # 读取并打印下次触发时间(用 jodatime 输出)
+        try:
+            job = self.scheduler.get_job("weekly_reward_reminder")
+            if job and job.next_run_time:
+                logger.info(f"每周阅读奖励提醒已注册 → 每周 {self._next_weekly_text()},下次: {job.next_run_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        except Exception as e:
+            logger.debug(f"读取每周奖励下次触发时间失败: {e}")
+
+    def get_weekly_status(self) -> dict:
+        """返回每周奖励调度状态(供前端展示)"""
+        enabled = config.get("notification.weekly_reward_reminder", True)
+        out = {
+            "enabled": enabled,
+            "day": self._get_weekly_day(),
+            "time": f"{self._get_weekly_time()[0]:02d}:{self._get_weekly_time()[1]:02d}",
+            "next_run": None,
+        }
+        if enabled and self.scheduler:
+            try:
+                job = self.scheduler.get_job("weekly_reward_reminder")
+                if job and job.next_run_time:
+                    out["next_run"] = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                pass
+        return out
+
+    async def trigger_weekly_now(self) -> bool:
+        """手动触发每周奖励提醒(用于前端'测试'按钮)"""
+        if not self._weekly_reminder_func:
+            return False
+        try:
+            await self._weekly_reminder_func()
+            return True
+        except Exception as e:
+            logger.error(f"手动触发每周奖励提醒失败: {e}")
+            return False
 
     async def trigger_now(self):
         logger.info("手动触发立即执行")

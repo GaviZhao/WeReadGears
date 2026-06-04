@@ -4,6 +4,7 @@ import signal
 import argparse
 from datetime import datetime
 from pathlib import Path
+import httpx
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -163,10 +164,12 @@ async def reading_with_fallback():
 
 
 async def startup_reading_and_schedule():
-    await reading_with_fallback()
-    logger.info("初始阅读完成，切换到定时任务模式")
+    # 先启动调度器(让 weekly reminder 立即注册),再后台跑初始阅读
     scheduler.set_task(reading_with_fallback)
     await scheduler.start()
+    logger.info("初始阅读后台执行中,调度器已就绪(每周奖励提醒已就位)")
+    # 后台异步执行初始阅读,不阻塞调度器
+    asyncio.create_task(reading_with_fallback())
 
 
 async def run_uvicorn():
@@ -182,6 +185,76 @@ async def run_uvicorn():
     )
     server = uvicorn.Server(server_config)
     await server.serve()
+
+
+async def periodic_cookie_refresh():
+    """后台定时刷新 wr_skey,避免被服务器判为过期。
+
+    微信读书的 wr_skey 1-2 小时会失效,即使续期后也可能再被服务器判过期。
+    每 5 分钟主动调用 /web/login/renewal 一次,保持 wr_skey 一直有效。
+    """
+    refresh_interval = 300  # 5 分钟
+    while True:
+        try:
+            await asyncio.sleep(refresh_interval)
+            # 只在 cookie 有效时才续期;失效时让前端提示用户重新扫码
+            if not cookie_manager.is_valid():
+                logger.info("[定期续期] Cookie 无效,跳过")
+                continue
+            if browser_manager._needs_relogin:
+                logger.info("[定期续期] 已标记需要重新登录,跳过")
+                continue
+
+            # 找出当前正在用的用户
+            valid_users = cookie_manager.get_all_valid_users()
+            user_name = valid_users[0] if valid_users else "default"
+            logger.info(f"[定期续期] 触发 wr_skey 续期 (用户={user_name})")
+            cookies = cookie_manager.load(user_name)
+            wr_skey = next((c["value"] for c in cookies if c.get("name") == "wr_skey"), None)
+            if not wr_skey:
+                continue
+
+            try:
+                async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+                    resp = await client.post(
+                        "https://weread.qq.com/web/login/renewal",
+                        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", "Content-Type": "application/json"},
+                        cookies={"wr_skey": wr_skey},
+                        json={"rq": "%2Fweb%2Fbook%2Fread", "ql": config.get("hack.cookie_refresh_ql", False)},
+                    )
+                # 提取新 wr_skey(可能通过 Set-Cookie 或 cookies 字段)
+                new_skey = None
+                for k, v in resp.cookies.items():
+                    if k == "wr_skey":
+                        new_skey = v
+                        break
+                if not new_skey:
+                    set_cookie = resp.headers.get("set-cookie", "")
+                    for part in set_cookie.split(";"):
+                        p = part.strip()
+                        if p.startswith("wr_skey="):
+                            new_skey = p.split("=", 1)[1]
+                            break
+                if new_skey and new_skey != wr_skey:
+                    # 更新磁盘 + Playwright context
+                    updated = []
+                    for c in cookies:
+                        c2 = dict(c)
+                        if c2.get("name") == "wr_skey":
+                            c2["value"] = new_skey
+                        updated.append(c2)
+                    cookie_manager.save(updated, user_name)
+                    await browser_manager._ensure_fresh_cookies()
+                    logger.info(f"[定期续期] wr_skey 已更新: {wr_skey[:8]}*** -> {new_skey[:8]}***")
+                else:
+                    logger.info(f"[定期续期] wr_skey 未变化 (可能仍有效)状态码={resp.status_code},新skey={bool(new_skey)}")
+            except Exception as e:
+                logger.warning(f"[定期续期] 请求异常: {e}")
+        except asyncio.CancelledError:
+            logger.info("[定期续期] 任务取消")
+            return
+        except Exception as e:
+            logger.warning(f"[定期续期] 循环异常: {e}")
 
 
 async def run_immediate_mode():
@@ -244,6 +317,10 @@ async def main():
         elif mode == "immediate":
             scheduler.register_weekly_reminder(notifier.notify_weekly_reward)
             asyncio.create_task(startup_reading_and_schedule())
+
+        # 启动后台定期 cookie 续期(独立于阅读任务,让 wr_skey 始终保持有效)
+        asyncio.create_task(periodic_cookie_refresh())
+        logger.info("已启动后台定期 cookie 续期任务 (5 分钟一次)")
 
         port = config.get("app.port", 8000)
         logger.info(f"Web 服务启动在端口 {port}")

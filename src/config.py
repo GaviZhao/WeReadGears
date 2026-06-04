@@ -77,6 +77,10 @@ class Config:
                 "include_statistics": True,
                 "only_on_failure": False,
                 "weekly_reward_reminder": True,
+                # 每周奖励提醒:星期几(0=周一 ... 6=周日)和时间(HH:MM,24h)
+                # 默认 周日 10:00 — 微信读书周奖励在周日 23:59 截止,留出时间领取
+                "weekly_reward_day": 6,
+                "weekly_reward_time": "10:00",
                 "bark": {
                     "enabled": False,
                     "server": "https://api.day.app",

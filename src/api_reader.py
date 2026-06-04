@@ -251,7 +251,7 @@ class ApiReader:
         return None
 
     async def _check_response(self, response: httpx.Response) -> bool:
-        """检查响应（同 weread-bot _handle_protocol_response）"""
+        """检查响应(腾讯 API 改版后 succ=1 就够,不要求 synckey 字段)"""
         if response.status_code != 200:
             logger.warning(f"API非200响应: {response.status_code}")
             return False
@@ -261,11 +261,28 @@ class ApiReader:
             logger.warning(f"API响应JSON解析失败: {response.text[:200]}")
             return False
 
+        # 优先检测:登录超时 (errCode=-2012) → 立刻判定 API 不可用
+        # 不再尝试 refresh,直接置 fail_reason 让 circuit breaker 切到浏览器
+        err_code = data.get("errCode")
+        if err_code in (-2012, -2010):  # -2012=登录超时, -2010=用户未登录
+            self._fail_reason = f"errCode={err_code} {data.get('errMsg','')}: 登录已失效,需要重新扫码"
+            self._needs_refresh = False
+            logger.warning(f"检测到 {self._fail_reason},立刻切到模拟模式")
+            return False
+
+        # 优先:老版 API(有 synckey)
         if "succ" in data and "synckey" in data:
             return True
 
+        # 新版 API:succ=1 就行
+        if data.get("succ") == 1:
+            # 顺手保存 synckey(如果有),供 _fix_no_synckey 用
+            if "synckey" in data and hasattr(self, '_last_synckey'):
+                self._last_synckey = data["synckey"]
+            return True
+
         if "succ" in data:
-            logger.warning(f"API响应缺少synckey，尝试修复: {str(data)[:200]}")
+            logger.warning(f"API响应 succ={data.get('succ')},尝试修复: {str(data)[:200]}")
             await self._fix_no_synckey()
             return False
 
@@ -346,17 +363,52 @@ class ApiReader:
         self.last_chapter_index = chapter_index
         logger.info(f"初始选择书籍: {self.last_book_name or self.last_book_id}")
 
-        if not self.data.get("ps"):
-            self.data.update({
-                "appId": self.credentials.user_info.get("captured_appId", "wb115321887466h953405538") if self.credentials.user_info else "wb115321887466h953405538",
-                "ps": self.credentials.user_id or self.credentials.wr_vid or "",
-                "pc": self.credentials.user_id or self.credentials.wr_vid or "",
-            })
+        # 如果 captured_payload 不全(没 ps/pc/appId),从 last_captured / captured_payload 补
+        # 优先从 last_captured 拿(API 拦截的最新值)
+        app_id = ""
+        ps_val = self.data.get("ps", "")
+        pc_val = self.data.get("pc", "")
+        if hasattr(self, 'last_captured') and self.last_captured:
+            app_id = self.last_captured.get("appId", "") or app_id
+            ps_val = self.last_captured.get("ps", "") or ps_val
+            pc_val = self.last_captured.get("pc", "") or pc_val
+        # 再从 credentials.user_info.captured_payload 拿
+        ui = self.credentials.user_info if self.credentials else {}
+        cap = ui.get("captured_payload", {}) if isinstance(ui, dict) else {}
+        app_id = cap.get("appId", "") or app_id
+        ps_val = cap.get("ps", "") or ps_val
+        pc_val = cap.get("pc", "") or pc_val
+        # 最后 fallback
+        app_id = app_id or "wb115321887466h953405538"
+        ps_val = ps_val or (self.credentials.user_id or self.credentials.wr_vid or "")
+        pc_val = pc_val or (self.credentials.user_id or self.credentials.wr_vid or "")
+        # 合并到 self.data(不动 appId 的 fallback 值,后面会被 pop 掉)
+        self.data.update({
+            "appId": app_id,
+            "ps": ps_val,
+            "pc": pc_val,
+        })
+
+        # 腾讯 API 改版后字段是 b/c/r/st/ct/ps/pc/sc/s(不再需要 appId/sg/ci/co)
+        # 无条件移除老版字段
+        for k in ("appId", "sg", "ts", "rn", "rt", "ci", "co"):
+            self.data.pop(k, None)
+        # 从 last_captured 拿 r/st/sc(新字段)
+        cap2 = (self.credentials.user_info or {}).get("captured_payload", {}) if self.credentials else {}
+        if hasattr(self, 'last_captured') and self.last_captured:
+            cap2 = self.last_captured
+        for k in ("r", "st", "sc"):
+            if k in cap2 and not self.data.get(k):
+                self.data[k] = cap2[k]
 
         _logged_first = False
         last_time = int(time.time()) - 30
         last_book_switch_time = 0
         refresh_attempted = False
+        # Circuit breaker:连续失败 N 次立即切到浏览器模式(不等读完目标时长)
+        # 经验值:cookie 失效/接口改版时 8 次连续失败足以判定 API 不可用
+        self._consecutive_failures = 0
+        circuit_breaker_threshold = 8
 
         try:
             while not self.should_stop:
@@ -388,7 +440,19 @@ class ApiReader:
                         self.total_reads += 1
                         last_time = int(time.time())
                         refresh_attempted = False
+                        self._consecutive_failures = 0  # 重置连续失败计数
                     else:
+                        # 硬性登录错误(-2012/-2010)→ 立刻切到模拟模式,不重试
+                        if self._fail_reason and ("errCode" in self._fail_reason):
+                            self.failed_reads += 1
+                            self.should_stop = True
+                            logger.warning(f"API 硬性错误,立即停止: {self._fail_reason}")
+                            if hasattr(browser_manager, '_needs_relogin'):
+                                browser_manager._needs_relogin = True
+                                browser_manager._relogin_reason = "登录已失效,需要在右上角扫码重新登录"
+                            break
+                        # 检查是否需要先 refresh cookie 重试一次
+                        did_retry = False
                         if self._needs_refresh and not refresh_attempted:
                             refresh_attempted = True
                             refresh_ok = await self._refresh_cookie()
@@ -403,21 +467,49 @@ class ApiReader:
                                 if await self._check_response(response):
                                     self.total_reads += 1
                                     last_time = int(time.time())
+                                    self._consecutive_failures = 0
+                                    did_retry = True
                                 else:
                                     self.failed_reads += 1
                                     self._needs_refresh = False
+                                    self._consecutive_failures += 1
                                     logger.warning(f"API重试失败: {str(response.json())[:100]}")
                             else:
                                 self.failed_reads += 1
                                 self._needs_refresh = False
                                 logger.warning("Cookie刷新失败，记录为失败请求")
+                                # cookie 刷新失败 = 必须重新扫码登录;触发 fallback 到浏览器模式
+                                self._fail_reason = "cookie_refresh_failed: wr_skey 失效,请重新扫码登录"
+                                self.should_stop = True
+                                # 标记前端需要重新登录(Web UI 显示提示横幅)
+                                if hasattr(browser_manager, '_needs_relogin'):
+                                    browser_manager._needs_relogin = True
+                                    browser_manager._relogin_reason = "wr_skey 失效,请在右上角扫码重新登录"
+                                break
+                        if not did_retry:
+                            self.failed_reads += 1
+                            self._consecutive_failures += 1
+                            logger.warning(f"API响应无效 (连续失败 {self._consecutive_failures}/{circuit_breaker_threshold})")
+
+                        # Circuit breaker:连续失败达到阈值,立刻切到浏览器模式
+                        if self._consecutive_failures >= circuit_breaker_threshold:
+                            self._fail_reason = f"api_consecutive_failures: API 连续失败 {self._consecutive_failures} 次,立刻切到模拟模式"
+                            self.should_stop = True
+                            logger.warning(f"API 模式连续失败 {self._consecutive_failures} 次,触发 circuit breaker,立即停止 API 切换到模拟模式")
+                            break
 
                 except Exception as e:
                     self.failed_reads += 1
                     self.errors[str(e)[:60]] = self.errors.get(str(e)[:60], 0) + 1
-                    logger.warning(f"API 请求异常，立即切换模拟模式: {e}")
-                    self.should_stop = True
-                    self._fail_reason = str(e)[:100]
+                    self._consecutive_failures += 1
+                    err_msg = str(e)[:100]
+                    logger.warning(f"API 请求异常 (连续失败 {self._consecutive_failures}/{circuit_breaker_threshold}): {e}")
+                    # 连续网络异常也立即切到浏览器模式
+                    if self._consecutive_failures >= circuit_breaker_threshold:
+                        self._fail_reason = f"api_network_consecutive_failures: {err_msg}"
+                        self.should_stop = True
+                        logger.warning(f"API 模式网络连续失败 {self._consecutive_failures} 次,触发 circuit breaker,立即停止 API 切换到模拟模式")
+                        break
 
                 interval = random.uniform(interval_min, interval_max)
 

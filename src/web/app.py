@@ -60,7 +60,10 @@ class NoCacheMiddleware(BaseHTTPMiddleware):
 app.add_middleware(NoCacheMiddleware)
 
 BASE_DIR = Path(__file__).parent.parent
-templates = Jinja2Templates(directory=str(BASE_DIR / "web" / "templates"))
+templates = Jinja2Templates(
+    directory=str(BASE_DIR / "web" / "templates"),
+    auto_reload=True,  # 模板磁盘变化时自动重载,改 HTML 不用重启服务
+)
 
 
 @app.get("/favicon.ico")
@@ -149,6 +152,10 @@ async def index(request: Request):
 
     users = config.get_users()
     statistics = history_manager.get_statistics()
+    # 自动进位分钟→小时(给首页模板用)
+    statistics["today_fmt"] = history_manager.format_minutes(statistics["today"]["total_minutes"])
+    statistics["week_fmt"] = history_manager.format_minutes(statistics["week"]["total_minutes"])
+    statistics["total_fmt"] = history_manager.format_minutes(statistics["total"]["total_minutes"])
 
     return templates.TemplateResponse("index.html", {
         "request": request,
@@ -167,6 +174,8 @@ async def index(request: Request):
             "enabled": notification_config.get("enabled", False),
             "only_on_failure": notification_config.get("only_on_failure", False),
             "weekly_reward_reminder": notification_config.get("weekly_reward_reminder", True),
+            "weekly_reward_day": notification_config.get("weekly_reward_day", 6),
+            "weekly_reward_time": notification_config.get("weekly_reward_time", "10:00"),
             "bark": notification_config.get("bark", {"enabled": False, "server": "https://api.day.app", "device_key": ""}),
             "pushplus": notification_config.get("pushplus", {"enabled": False, "token": ""}),
             "telegram": notification_config.get("telegram", {"enabled": False, "bot_token": "", "chat_id": ""}),
@@ -235,6 +244,8 @@ async def save_config(request: Request):
             "enabled": data.get("notification_enabled", True),
             "only_on_failure": data.get("notification_only_on_failure", False),
             "weekly_reward_reminder": data.get("weekly_reward_reminder", True),
+            "weekly_reward_day": int(data.get("weekly_reward_day", 6) or 6),
+            "weekly_reward_time": str(data.get("weekly_reward_time", "10:00") or "10:00"),
             "bark": {
                 "enabled": data.get("bark_enabled", False),
                 "server": data.get("bark_server", "https://api.day.app"),
@@ -291,6 +302,27 @@ async def save_config(request: Request):
         }
     }
     config.update(updates)
+    # 如果每周奖励配置变了,更新调度器触发器(避免重启服务)
+    try:
+        notif = updates.get("notification", {})
+        if "weekly_reward_day" in notif or "weekly_reward_time" in notif or "weekly_reward_reminder" in notif:
+            if scheduler and scheduler.scheduler:
+                enabled = config.get("notification.weekly_reward_reminder", True)
+                if enabled and scheduler._weekly_reminder_func is not None:
+                    scheduler.scheduler.add_job(
+                        scheduler._run_weekly_reminder,
+                        trigger=scheduler._build_weekly_trigger(),
+                        id="weekly_reward_reminder",
+                        replace_existing=True,
+                    )
+                    job = scheduler.scheduler.get_job("weekly_reward_reminder")
+                    next_str = job.next_run_time.strftime('%Y-%m-%d %H:%M:%S') if job and job.next_run_time else '?'
+                    logger.info(f"每周奖励触发器已更新 → 每周 {scheduler._next_weekly_text()},下次: {next_str}")
+                elif not enabled and scheduler.scheduler.get_job("weekly_reward_reminder"):
+                    scheduler.scheduler.remove_job("weekly_reward_reminder")
+                    logger.info("每周奖励提醒已禁用,移除调度")
+    except Exception as e:
+        logger.error(f"更新每周奖励触发器失败: {e}")
     return JSONResponse({"status": "ok", "message": "配置已保存"})
 
 
@@ -304,6 +336,39 @@ async def trigger_reading():
     asyncio.create_task(reader.start_reading())
     await notifier.notify_reading_start(book_name=book_name, duration=duration)
     return JSONResponse({"status": "ok", "message": "阅读任务已启动"})
+
+
+@app.post("/api/restart")
+async def api_restart():
+    """触发 Python 进程退出,容器会自动 restart(用于 dev 改代码后快速生效)"""
+    import os
+    import asyncio
+    async def _kill():
+        await asyncio.sleep(0.5)
+        os._exit(0)
+    asyncio.create_task(_kill())
+    return JSONResponse({"status": "ok", "message": "正在重启..."})
+
+
+@app.post("/api/reload")
+async def api_reload():
+    """热重载 history_manager / config / reader / scheduler 等模块(无需重启容器)"""
+    import importlib
+    reloaded = []
+    for mod_name in [
+        "src.history_manager",
+        "src.config",
+        "src.reader",
+        "src.scheduler",
+        "src.api_reader",
+    ]:
+        try:
+            m = importlib.import_module(mod_name)
+            importlib.reload(m)
+            reloaded.append(mod_name)
+        except Exception as e:
+            reloaded.append(f"{mod_name}(err:{e})")
+    return JSONResponse({"status": "ok", "reloaded": reloaded})
 
 
 @app.post("/trigger-api-reading")
@@ -400,14 +465,43 @@ async def logout():
     browser_manager._current_user = ""
     browser_manager._login_status = "idle"
     browser_manager.reset_login_status()
+    # 1. 清浏览器 context 的 cookies
     try:
         if browser_manager.context:
             await browser_manager.context.clear_cookies()
         if browser_manager.page:
             await browser_manager.page.goto("https://weread.qq.com/", timeout=10000)
-    except:
+    except Exception:
         pass
-    return JSONResponse({"status": "ok", "message": "已退出登录"})
+    # 2. 清磁盘上的 cookies + credentials(否则 reload 后 cookies_valid 还是 True)
+    cleared = []
+    try:
+        from src.cookie_manager import cookie_manager
+        from src.credential_manager import credential_manager
+        for u in cookie_manager.get_all_valid_users():
+            cookie_manager.clear(u)
+            try:
+                credential_manager.delete(u)
+            except Exception:
+                pass
+            cleared.append(u)
+        # 兼容旧结构:根目录 default.json
+        try:
+            old_default = Path("shared/credentials/default.json")
+            if old_default.exists():
+                old_default.unlink()
+                cleared.append("default(old)")
+            old_cookies = Path("shared/cookies.json")
+            if old_cookies.exists():
+                old_cookies.unlink()
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning(f"清磁盘凭证时异常: {e}")
+    return JSONResponse({
+        "status": "ok",
+        "message": f"已退出登录(清掉 {len(cleared)} 个用户凭证: {cleared})"
+    })
 
 
 @app.post("/capture-curl")
@@ -430,8 +524,26 @@ async def get_captured_info():
 
 @app.get("/api/shelf-books")
 async def get_shelf_books():
+    # 先把磁盘 cookie 同步到 context(初始化时只 load 一次,后续不同步)
+    try:
+        await browser_manager._ensure_fresh_cookies()
+    except Exception:
+        pass
+    # 再看登录态,没 wr_skey 直接提示
+    has_login = False
+    try:
+        if browser_manager.context:
+            cookies = await browser_manager.context.cookies()
+            has_login = any(c.get("name") == "wr_skey" and c.get("value") for c in cookies)
+    except Exception:
+        pass
+    if not has_login:
+        return JSONResponse(
+            {"books": [], "error": "not_logged_in", "message": "未登录或 cookie 已过期,请先在右上角扫码登录"},
+            status_code=200,
+        )
     books = await browser_manager.fetch_shelf_books()
-    return JSONResponse({"books": books})
+    return JSONResponse({"books": books, "count": len(books)})
 
 
 @app.get("/api/shelf-debug")
@@ -531,11 +643,14 @@ async def search_preview(q: str = ""):
 
 
 @app.get("/api/search-books")
-async def search_books(q: str = ""):
+async def search_books(q: str = "", limit: int = 8):
+    """按书名搜索,返回多条候选 + 数据来源(api/ssr/dom/empty)。
+    用于书籍配置弹窗,前端从候选列表里挑一本填回。
+    """
     if not q.strip():
-        return JSONResponse({"results": []})
-    results = await browser_manager.search_book_by_name(q.strip())
-    return JSONResponse({"results": results})
+        return JSONResponse({"query": q, "source": "empty", "count": 0, "results": []})
+    out = await browser_manager.search_books_candidates(q.strip(), limit=limit)
+    return JSONResponse(out)
 
 
 @app.get("/reader-status")
@@ -559,7 +674,22 @@ async def get_history(limit: int = 10, offset: int = 0):
 
 @app.get("/statistics")
 async def get_statistics():
-    return JSONResponse(history_manager.get_statistics())
+    raw = history_manager.get_statistics()
+    # 自动进位分钟→小时
+    raw["today_fmt"] = history_manager.format_minutes(raw["today"]["total_minutes"])
+    raw["week_fmt"] = history_manager.format_minutes(raw["week"]["total_minutes"])
+    raw["total_fmt"] = history_manager.format_minutes(raw["total"]["total_minutes"])
+    return JSONResponse(raw)
+
+
+@app.get("/api/heatmap")
+async def get_heatmap(weeks: int = 9):
+    """GitHub contributions 风格阅读热力图(默认 9 周 ≈ 2 个月)"""
+    try:
+        data = history_manager.get_heatmap_data(weeks=weeks)
+        return JSONResponse(data)
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
 
 
 @app.post("/history/clear")
@@ -691,6 +821,13 @@ async def login_status():
     status = browser_manager.get_login_status()
     if status["status"] == "need_username":
         return JSONResponse({"status": "need_username", "message": "请输入用户名"})
+    # 补充 user_name(取第一个有效用户),让前端 header 右上角可以显示
+    try:
+        valid_users = cookie_manager.get_all_valid_users()
+        if valid_users and "user_name" not in status:
+            status["user_name"] = valid_users[0]
+    except Exception:
+        pass
     return JSONResponse(status)
 
 
@@ -775,14 +912,40 @@ async def restart_browser():
 
 
 @app.post("/test-notification")
-async def test_notification():
-    success = await notifier.send(
-        "微信读书自动阅读 - 测试通知\n\n如果你收到此消息，说明通知配置正确。",
-        NotificationType.GENERAL
-    )
+async def test_notification(request: Request):
+    """测试通知。query/body 参数 type=general|weekly_reward
+    - general:    通用测试通知,验证通道配置
+    - weekly_reward: 模拟每周奖励提醒的标题+内容
+    """
+    try:
+        body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    except Exception:
+        body = {}
+    ntype = (body.get("type") or "general").lower()
+
+    if ntype == "weekly_reward":
+        success = await notifier.notify_weekly_reward()
+        msg = "每周奖励提醒已发送(模拟)" if success else "发送失败,请检查通知通道配置"
+    else:
+        success = await notifier.send(
+            "微信读书自动阅读 - 测试通知\n\n如果你收到此消息,说明通知配置正确。",
+            NotificationType.GENERAL
+        )
+        msg = "测试通知已发送" if success else "通知发送失败,请检查 Token/Key 是否正确"
+
     if success:
-        return JSONResponse({"status": "ok", "message": "测试通知已发送"})
-    return JSONResponse({"status": "error", "message": "通知发送失败，请检查 Token/Key 是否正确"})
+        return JSONResponse({"status": "ok", "message": msg, "type": ntype})
+    return JSONResponse({"status": "error", "message": msg, "type": ntype})
+
+
+@app.get("/api/weekly-status")
+async def weekly_status():
+    """返回每周奖励调度状态(供前端展示)"""
+    try:
+        st = scheduler.get_weekly_status()
+        return JSONResponse(st)
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
 
 
 @app.get("/logs")

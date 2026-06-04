@@ -1,228 +1,366 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
     <title>WeReadGears</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'><defs><linearGradient id='gearGradient' x1='180' y1='180' x2='850' y2='850' gradientUnits='userSpaceOnUse'><stop offset='0%25' stop-color='%231EC8FF'/><stop offset='45%25' stop-color='%232864FF'/><stop offset='100%25' stop-color='%238A22FF'/></linearGradient><radialGradient id='glowGradient' cx='50%25' cy='45%25' r='50%25'><stop offset='0%25' stop-color='%233BCBFF' stop-opacity='0.55'/><stop offset='55%25' stop-color='%236633FF' stop-opacity='0.28'/><stop offset='100%25' stop-color='%23000000' stop-opacity='0'/></radialGradient><filter id='softGlow' x='-40%25' y='-40%25' width='180%25' height='180%25'><feGaussianBlur stdDeviation='38' result='blur'/><feMerge><feMergeNode in='blur'/><feMergeNode in='SourceGraphic'/></feMerge></filter><filter id='shadow' x='-20%25' y='-20%25' width='140%25' height='140%25'><feDropShadow dx='0' dy='24' stdDeviation='34' flood-color='%233F2CFF' flood-opacity='0.35'/></filter></defs><circle cx='512' cy='512' r='360' fill='url(%23glowGradient)' filter='url(%23softGlow)'/><g filter='url(%23shadow)'><path fill='url(%23gearGradient)' fill-rule='evenodd' d='M512 178C538 178 560 180 584 184L600 264C616 269 632 276 647 284L716 239C755 266 790 301 817 340L772 409C780 424 787 440 792 456L872 472C876 496 878 518 878 544C878 570 876 592 872 616L792 632C787 648 780 664 772 679L817 748C790 787 755 822 716 849L647 804C632 812 616 819 600 824L584 904C560 908 538 910 512 910C486 910 464 908 440 904L424 824C408 819 392 812 377 804L308 849C269 822 234 787 207 748L252 679C244 664 237 648 232 632L152 616C148 592 146 570 146 544C146 518 148 496 152 472L232 456C237 440 244 424 252 409L207 340C234 301 269 266 308 239L377 284C392 276 408 269 424 264L440 184C464 180 486 178 512 178ZM512 336C397 336 304 429 304 544C304 659 397 752 512 752C627 752 720 659 720 544C720 429 627 336 512 336Z'/><circle cx='512' cy='544' r='132' fill='%2317191D' opacity='0.96'/><circle cx='512' cy='544' r='185' fill='none' stroke='rgba(255,255,255,0.22)' stroke-width='22'/><circle cx='512' cy='544' r='132' fill='none' stroke='rgba(255,255,255,0.12)' stroke-width='2'/></g></svg>">
-    <style>
-        *{box-sizing:border-box;margin:0;padding:0}
-        body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a0f;min-height:100vh;color:#f8fafc;line-height:1.6}
-        .container{max-width:1400px;margin:0 auto;padding:40px 20px}
-        .header{text-align:center;margin-bottom:40px}
-        .header h1{font-size:2.8rem;font-weight:700;background:linear-gradient(135deg,#6366f1,#06b6d4,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:8px;letter-spacing:-1px}
-        .header p{color:#94a3b8;font-size:1.05rem}
-        .row{display:flex;gap:24px;flex-wrap:wrap}
-        .col-main{flex:1;min-width:0}
-        .col-side{width:400px;flex-shrink:0}
-        @media(max-width:1100px){.col-side{width:100%}}
-        .card{background:rgba(18,18,26,0.8);backdrop-filter:blur(20px);border:1px solid rgba(99,102,241,0.15);border-radius:24px;padding:24px;margin-bottom:20px;transition:border-color .3s}
-        .card:hover{border-color:rgba(99,102,241,0.3)}
-        .card-title{font-size:1.1rem;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:10px}
-        .mode-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
-        .mode-card{padding:16px;border-radius:12px;border:2px solid rgba(255,255,255,0.1);cursor:pointer;transition:all .3s;text-align:center}
-        .mode-card:hover{border-color:rgba(99,102,241,0.5)}
-        .mode-card.active{border-color:#6366f1;background:rgba(99,102,241,0.1)}
-        .mode-card .mode-name{font-weight:600;margin-bottom:4px}
-        .mode-card .mode-desc{font-size:.75rem;color:#64748b}
-        .status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}
-        .status-item{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.05);border-radius:14px;padding:16px;text-align:center}
-        .status-item .label{color:#64748b;font-size:.7rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
-        .status-item .value{font-size:.95rem;font-weight:600}
-        .status-item .value.success{color:#10b981}
-        .status-item .value.error{color:#ef4444}
-        .status-item .value.info{color:#06b6d4}
-        .status-btn-group{display:flex;gap:8px;margin-top:16px}
-        .status-btn{flex:1;padding:12px 16px;border:none;border-radius:12px;font-size:.85rem;font-weight:600;cursor:pointer;transition:all .3s;text-align:center;min-width:0}
-        .status-btn-primary{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff}
-        .status-btn-primary:hover{transform:translateY(-2px);box-shadow:0 4px 20px rgba(99,102,241,.3)}
-        .status-btn-secondary{background:rgba(255,255,255,.05);color:#f8fafc;border:1px solid rgba(255,255,255,.1)}
-        .status-btn-secondary:hover{background:rgba(255,255,255,.1)}
-        .status-btn-danger{background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.2)}
-        .status-btn-danger:hover{background:rgba(239,68,68,.2)}
-        .btn{padding:12px 22px;border:none;border-radius:12px;font-size:.85rem;font-weight:600;cursor:pointer;transition:all .3s;display:inline-flex;align-items:center;gap:6px}
-        .btn:disabled{opacity:.5;cursor:not-allowed;transform:none!important}
-        .btn-primary{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;box-shadow:0 4px 20px rgba(99,102,241,.3)}
-        .btn-primary:hover:not(:disabled){transform:translateY(-2px)}
-        .btn-success{background:linear-gradient(135deg,#10b981,#059669);color:#fff}
-        .btn-success:hover:not(:disabled){transform:translateY(-2px)}
-        .btn-secondary{background:rgba(255,255,255,.05);color:#f8fafc;border:1px solid rgba(255,255,255,.1)}
-        .btn-secondary:hover:not(:disabled){background:rgba(255,255,255,.1)}
-        .btn-danger{background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.2)}
-        .btn-danger:hover:not(:disabled){background:rgba(239,68,68,.2)}
-        .btn-sm{padding:6px 14px;font-size:.75rem;border-radius:8px}
-        .btn-group{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
-        .form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}
-        .form-group{margin-bottom:14px}
-        .form-group label{display:block;color:#94a3b8;font-size:.8rem;font-weight:500;margin-bottom:8px}
-        .form-group input[type="text"],.form-group input[type="number"],.form-group input[type="time"],.form-group input[type="password"]{width:100%;padding:12px 16px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);border-radius:10px;font-size:.9rem;color:#f8fafc;color-scheme:dark;transition:border-color .3s,box-shadow .3s}
-        .form-group input:focus{outline:none;border-color:#6366f1;background:rgba(99,102,241,.05);box-shadow:0 0 0 4px rgba(99,102,241,.1)}
-        .toggle{position:relative;width:48px;height:26px;display:inline-block}
-        .toggle input{display:none}
-        .toggle-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,.1);border-radius:26px;transition:.3s}
-        .toggle-slider::before{position:absolute;content:"";height:20px;width:20px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s}
-        .toggle input:checked+.toggle-slider{background:linear-gradient(135deg,#6366f1,#8b5cf6)}
-        .toggle input:checked+.toggle-slider::before{transform:translateX(22px)}
-        .save-btn{padding:16px 44px;background:linear-gradient(135deg,#6366f1,#06b6d4);color:#fff;border:none;border-radius:14px;font-size:.95rem;font-weight:600;cursor:pointer;box-shadow:0 4px 25px rgba(99,102,241,.35);transition:all .3s}
-        .save-btn:hover:not(:disabled){transform:translateY(-3px)}
-        .save-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
-        .preview-wrap{position:relative;overflow:hidden;border-radius:12px;background:#1a1a2e;aspect-ratio:16/10;border:1px solid rgba(255,255,255,.05);user-select:none}
-        .preview-wrap img{display:block;width:100%;height:100%;object-fit:contain;transform-origin:0 0;image-rendering:auto;pointer-events:auto}
-        .preview-controls{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
-        .preview-controls .zoom-level{color:#94a3b8;font-size:.8rem;min-width:45px;text-align:center}
-        .zoom-btn{width:32px;height:32px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#f8fafc;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1rem;transition:all .2s}
-        .zoom-btn:hover{background:rgba(99,102,241,.2);border-color:#6366f1}
-        .progress-bar{width:100%;height:6px;background:rgba(255,255,255,.05);border-radius:3px;overflow:hidden;margin:12px 0}
-        .progress-bar-fill{height:100%;background:linear-gradient(90deg,#6366f1,#06b6d4);border-radius:3px;transition:width 1s}
-        .reading-info{display:flex;justify-content:space-between;color:#94a3b8;font-size:.8rem;gap:12px;flex-wrap:wrap}
-        .book-item{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:20px;margin-bottom:12px}
-        .book-item .book-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-        .book-item .book-title{font-weight:600;color:#06b6d4;font-size:.9rem}
-        .ch-row{display:flex;gap:8px;margin-top:8px;align-items:center}
-        .ch-row input{flex:1;padding:10px 14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:10px;font-size:.85rem;color:#f8fafc}
-        .ch-row input[type=number]{width:80px;flex:none}
-        .ch-del-btn{width:32px;height:32px;background:rgba(239,68,68,.1);color:#ef4444;border:none;border-radius:8px;cursor:pointer;font-size:1rem;transition:background .2s}
-        .ch-del-btn:hover{background:rgba(239,68,68,.2)}
-        .add-btn{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;padding:10px 18px;border-radius:10px;cursor:pointer;font-size:.85rem;font-weight:500;margin-top:8px;transition:transform .2s}
-        .add-btn:hover{transform:translateY(-1px)}
-        .del-btn{background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.2);padding:5px 10px;border-radius:8px;cursor:pointer;font-size:.75rem;transition:background .2s}
-        .del-btn:hover{background:rgba(239,68,68,.2)}
-        .modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);backdrop-filter:blur(8px);z-index:1000;justify-content:center;align-items:center}
-        .modal-overlay.active{display:flex}
-        .modal-box{background:rgba(18,18,26,.95);border:1px solid rgba(99,102,241,.2);border-radius:24px;padding:36px;max-width:420px;width:90%;text-align:center}
-        .modal-box h2{font-size:1.4rem;margin-bottom:8px}
-        .modal-box p{color:#94a3b8;margin-bottom:20px;font-size:.9rem}
-        .qr-wrap{background:#fff;border-radius:16px;padding:12px;margin:0 auto 20px;max-width:300px}
-        .qr-wrap img{width:100%;display:block;border-radius:8px}
-        .login-hint{background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.15);border-radius:10px;padding:10px 14px;color:#94a3b8;font-size:.82rem;margin-bottom:16px;text-align:left;line-height:1.7}
-        .login-st{font-size:.9rem;font-weight:500}
-        .login-st.info{color:#06b6d4}.login-st.success{color:#10b981}.login-st.error{color:#ef4444}
-        .spinner{width:36px;height:36px;border:3px solid rgba(99,102,241,.2);border-top-color:#6366f1;border-radius:50%;animation:spin .8s linear infinite;margin:40px auto}
-        @keyframes spin{to{transform:rotate(360deg)}}
-        .ch-divider{border-top:1px solid rgba(255,255,255,.06);margin:16px 0}
-        .user-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:16px;margin-bottom:12px;transition:border-color .3s}
-        .user-card:hover{border-color:rgba(99,102,241,.2)}
-        .user-card .user-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-        .user-card .user-name{font-weight:600;color:#06b6d4}
-        .user-name-input{background:transparent;border:none;border-bottom:1px solid rgba(99,102,241,.3);color:#06b6d4;font-weight:600;font-size:.9rem;outline:none;width:auto;min-width:80px;padding:2px 4px;transition:border-color .3s,background .3s}
-        .user-name-input:focus{border-bottom-color:#6366f1;background:rgba(99,102,241,.05)}
-        .user-card .user-status{font-size:.75rem;padding:4px 8px;border-radius:4px}
-        .user-card .user-status.logged-in{background:rgba(16,185,129,.1);color:#10b981}
-        .user-card .user-status.not-logged{background:rgba(239,68,68,.1);color:#ef4444}
-        .user-card .user-actions{display:flex;gap:6px;margin-top:8px}
-        .user-card .user-info-text{font-size:.72rem;color:#64748b;margin-top:4px}
-        .history-item{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:14px;margin-bottom:8px;transition:border-color .2s}
-        .history-item:hover{border-color:rgba(255,255,255,.1)}
-        .history-item .history-time{color:#64748b;font-size:.75rem;margin-bottom:4px}
-        .history-item .history-content{font-size:.85rem}
-        .history-item .history-status{float:right}
-        .history-item .history-status.success{color:#10b981}
-        .history-item .history-status.failed{color:#ef4444}
-        .stat-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.05);border-radius:14px;padding:20px;text-align:center;transition:border-color .3s}
-        .stat-card:hover{border-color:rgba(6,182,212,.2)}
-        .stat-card .stat-value{font-size:2rem;font-weight:700;color:#06b6d4}
-        .stat-card .stat-label{color:#64748b;font-size:.75rem;margin-top:4px}
-        .stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
-        .tab-nav{display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid rgba(255,255,255,.1);padding-bottom:8px}
-        .tab-btn{padding:8px 16px;background:transparent;border:none;color:#64748b;cursor:pointer;font-size:.9rem;border-radius:8px;transition:all .2s}
-        .tab-btn:hover{background:rgba(255,255,255,.05)}
-        .tab-btn.active{background:rgba(99,102,241,.2);color:#6366f1}
-        .tab-content{display:none}
-        .tab-content.active{display:block}
-        .empty-state{text-align:center;padding:30px 20px;color:#64748b}
-        .empty-state .empty-icon{font-size:2rem;margin-bottom:8px;opacity:.5}
-        .empty-state .empty-text{font-size:.85rem}
-        .notify-group{margin-bottom:16px}
-        .notify-group summary{cursor:pointer;font-size:.9rem;font-weight:600;color:#94a3b8;padding:8px 0;user-select:none;list-style:none;display:flex;align-items:center;gap:8px}
-        .notify-group summary::before{content:"";display:inline-block;width:0;height:0;border:5px solid transparent;border-left:7px solid #64748b;transition:transform .2s}
-        .notify-group[open] summary::before{transform:rotate(90deg)}
-        .notify-group summary:hover{color:#f8fafc}
-        .footer{text-align:center;padding:30px 0 10px;color:#475569;font-size:.75rem}
-        .footer a{color:#6366f1;text-decoration:none}
-        .footer a:hover{text-decoration:underline}
-        /* Toast */
-        .toast-container{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
-        .toast{padding:14px 20px;border-radius:12px;font-size:.85rem;font-weight:500;backdrop-filter:blur(16px);pointer-events:auto;animation:toastIn .3s ease;max-width:380px;display:flex;align-items:center;gap:10px;box-shadow:0 8px 32px rgba(0,0,0,.4)}
-        .toast.hiding{animation:toastOut .3s ease forwards}
-        .toast.success{background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:#10b981}
-        .toast.error{background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#ef4444}
-        .toast.info{background:rgba(6,182,212,.15);border:1px solid rgba(6,182,212,.3);color:#06b6d4}
-        .toast.warning{background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.3);color:#f59e0b}
-        @keyframes toastIn{from{opacity:0;transform:translateX(100px)}to{opacity:1;transform:translateX(0)}}
-        @keyframes toastOut{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(100px)}}
-        /* Confirm dialog */
-        .confirm-overlay{display:flex;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.8);backdrop-filter:blur(6px);z-index:10000;justify-content:center;align-items:center;animation:fadeIn .2s ease}
-        .confirm-box{background:rgba(18,18,26,.98);border:1px solid rgba(99,102,241,.25);border-radius:20px;padding:30px;max-width:380px;width:90%;text-align:center;animation:scaleIn .2s ease}
-        .confirm-box p{color:#e2e8f0;font-size:.95rem;margin-bottom:24px;line-height:1.6}
-        .confirm-actions{display:flex;gap:12px;justify-content:center}
-        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-        @keyframes scaleIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
-        @media(max-width:768px){
-            .container{padding:20px 12px}
-            .header h1{font-size:2rem}
-            .card{padding:18px 14px;border-radius:18px}
-            .col-side{width:100%}
-            .mode-cards{grid-template-columns:1fr}
-            .stat-row{grid-template-columns:repeat(3,1fr)}
-            .toast-container{top:10px;right:10px;left:10px}
-            .toast{max-width:100%}
-            .form-row{grid-template-columns:1fr}
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%233a76f0'/><text x='50' y='66' font-size='56' font-family='Arial' font-weight='bold' fill='white' text-anchor='middle'>W</text></svg>">
+    <script>
+    // 早跑:在 CSS 渲染前应用主题,避免夜间模式闪烁
+    (function() {
+        try {
+            var saved = localStorage.getItem('wereadgears-theme');
+            var theme = (saved === 'light' || saved === 'dark') ? saved
+                : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : null);
+            if (theme) document.documentElement.setAttribute('data-theme', theme);
+        } catch(e) {}
+    })();
+    </script>
+        <style>
+        :root {
+            --bg-page: #f5f6f7;
+            --bg-card: #ffffff;
+            --bg-soft: #f0f2f5;
+            --bg-hover: #e8eaef;
+            --border: #e5e6eb;
+            --border-strong: #c9cdd4;
+            --text-1: #1f2329;
+            --text-2: #4e5969;
+            --text-3: #86909c;
+            --primary: #3a76f0;
+            --primary-hover: #2c5fc7;
+            --primary-soft: #e8f0fe;
+            --success: #00b42a;
+            --success-soft: #e8f7ed;
+            --warning: #ff7d00;
+            --warning-soft: #fff3e0;
+            --danger: #f53f3f;
+            --danger-soft: #ffeced;
+            /* 热力图配色(浅色:GitHub 经典绿) */
+            --hm-empty: #ebedf0;
+            --hm-l1: #9be9a8;
+            --hm-l2: #40c463;
+            --hm-l3: #30a14e;
+            --hm-l4: #216e39;
+            --hm-l5: #0a4a1f;
+            --hm-today: #3a76f0;
+            --radius: 6px;
+            --radius-sm: 4px;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+            --shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
         }
-        @media(max-width:480px){
-            .btn-group{flex-direction:column}
-            .btn-group .btn{width:100%;justify-content:center}
+        /* === 夜间模式 === */
+        :root[data-theme="dark"] {
+            --bg-page: #0f1115;
+            --bg-card: #1a1d24;
+            --bg-soft: #232730;
+            --bg-hover: #2a2f3a;
+            --border: #2a2f3a;
+            --border-strong: #3d434f;
+            --text-1: #e6e8eb;
+            --text-2: #a8adb5;
+            --text-3: #6c727a;
+            --primary: #5b8def;
+            --primary-hover: #4a7ade;
+            --primary-soft: #1e2c4a;
+            --success: #2cc760;
+            --success-soft: #15301f;
+            --warning: #ffa53d;
+            --warning-soft: #3a2812;
+            --danger: #f55b5b;
+            --danger-soft: #3a1818;
+            /* 热力图配色(夜间:GitHub 暗色绿) */
+            --hm-empty: #1e2128;
+            --hm-l1: #033a16;
+            --hm-l2: #196c2e;
+            --hm-l3: #2ea043;
+            --hm-l4: #56d364;
+            --hm-l5: #aff5b4;
+            --hm-today: #5b8def;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+            --shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
         }
-        ::-webkit-scrollbar{width:6px}
-        ::-webkit-scrollbar-track{background:rgba(255,255,255,.03);border-radius:3px}
-        ::-webkit-scrollbar-thumb{background:rgba(99,102,241,.3);border-radius:3px}
-        ::-webkit-scrollbar-thumb:hover{background:rgba(99,102,241,.5)}
-        @keyframes idleGlow{0%,100%{filter:drop-shadow(0 0 8px rgba(30,200,255,.2))}50%{filter:drop-shadow(0 0 18px rgba(138,34,255,.4))}}
-        .gear-wrap .gear-icon{animation:idleGlow 3s ease-in-out infinite}
-        @keyframes gspin{0%{transform:rotate(0deg)}to{transform:rotate(360deg)}}
-        .gear-wrap.spinning .gear-icon{animation:gspin 3s linear infinite}
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", "Helvetica Neue", sans-serif;
+            background: var(--bg-page);
+            min-height: 100vh;
+            color: var(--text-1);
+            line-height: 1.6;
+            font-size: 14px;
+        }
+        a { color: var(--primary); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .container { max-width: 1320px; margin: 0 auto; padding: 24px 20px; }
+        .header { background: var(--bg-card); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+        .header-left { display: flex; align-items: center; gap: 10px; }
+        .logo { width: 28px; height: 28px; background: var(--primary); color: #fff; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; }
+        .header h1 { font-size: 17px; font-weight: 600; color: var(--text-1); margin: 0; }
+        .header-sub { color: var(--text-3); font-size: 12px; margin-left: 4px; }
+        .header-right { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-2); }
+        .header-right .user-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--bg-soft); border-radius: 12px; font-size: 12px; color: var(--text-1); }
+        /* 主题切换按钮 */
+        .theme-btn { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-2); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: all 0.2s; padding: 0; }
+        .theme-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); transform: rotate(15deg); }
+        .theme-icon-sun, .theme-icon-moon { display: none; }
+        :root[data-theme="light"] .theme-icon-moon, :root:not([data-theme="dark"]) .theme-icon-moon { display: block; }
+        :root[data-theme="dark"]  .theme-icon-sun  { display: block; }
+        /* 整站过渡 */
+        body, .card, .header, .btn, .form-group input, .toggle-slider, .status-item, .book-item, .user-card, .history-item, .mode-card, .modal-box, .heatmap-wrap, .heatmap-legend, .login-hint, .qr-wrap, .ch-row input, .ch-del-btn, .user-pill, .del-btn, .add-btn, .theme-btn, .zoom-btn, .tab-btn, .tab-nav, .preview-wrap, .progress-bar { transition: background-color 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s; }
+        .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+        .dot.ok { background: var(--success); }
+        .dot.bad { background: var(--danger); }
+        .row { display: flex; gap: 16px; flex-wrap: wrap; }
+        .col-main { flex: 1; min-width: 0; }
+        .col-side { width: 340px; flex-shrink: 0; }
+        @media (max-width: 1100px) { .col-side { width: 100%; } }
+        .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 14px; }
+        .card-title { font-size: 16px; font-weight: 600; color: var(--text-1); margin-bottom: 14px; display: flex; align-items: center; justify-content: flex-start; gap: 8px; text-align: left; }
+        .card-title::before { content: ""; display: inline-block; width: 4px; height: 16px; background: var(--primary); border-radius: 2px; margin-right: 6px; }
+        .card-title-text { display: inline-flex; align-items: center; }
+        .card-title-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+        .mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+        .mode-card { padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); cursor: pointer; transition: all 0.15s; text-align: left; background: var(--bg-card); }
+        .mode-card:hover { border-color: var(--primary); }
+        .mode-card.active { border-color: var(--primary); background: var(--primary-soft); }
+        .mode-card .mode-name { font-weight: 600; margin-bottom: 2px; color: var(--text-1); font-size: 14px; }
+        .mode-card .mode-desc { font-size: 12px; color: var(--text-3); }
+        .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .status-item { background: var(--bg-soft); border-radius: var(--radius); padding: 12px 14px; }
+        .status-item .label { color: var(--text-3); font-size: 12px; margin-bottom: 4px; }
+        .status-item .value { font-size: 14px; font-weight: 600; color: var(--text-1); }
+        .status-item .value.success { color: var(--success); }
+        .status-item .value.error { color: var(--danger); }
+        .status-item .value.info { color: var(--primary); }
+        .status-btn-group { display: flex; gap: 8px; margin-top: 12px; }
+        .status-btn { flex: 1; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; background: var(--bg-card); color: var(--text-1); }
+        .status-btn:hover { border-color: var(--primary); color: var(--primary); }
+        .status-btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .status-btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); color: #fff; }
+        .status-btn-secondary { background: var(--bg-card); }
+        .status-btn-danger { color: var(--danger); border-color: var(--danger-soft); }
+        .status-btn-danger:hover { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+        .btn { padding: 8px 16px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; display: inline-flex; align-items: center; gap: 4px; background: var(--bg-card); color: var(--text-1); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .btn-primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
+        .btn-success { background: var(--success); color: #fff; border-color: var(--success); }
+        .btn-success:hover:not(:disabled) { background: #009a23; border-color: #009a23; }
+        .btn-secondary { background: var(--bg-card); color: var(--text-1); }
+        .btn-secondary:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+        .btn-danger { background: var(--bg-card); color: var(--danger); border-color: var(--danger-soft); }
+        .btn-danger:hover:not(:disabled) { background: var(--danger-soft); border-color: var(--danger); }
+        .btn-sm { padding: 5px 12px; font-size: 12px; border-radius: var(--radius-sm); }
+        .btn-group { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+        .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; color: var(--text-2); font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+        .form-group input[type="text"], .form-group input[type="number"], .form-group input[type="time"], .form-group input[type="password"] {
+            width: 100%; padding: 7px 11px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+            font-size: 13px; color: var(--text-1); transition: border-color 0.15s, box-shadow 0.15s; font-family: inherit;
+        }
+        .form-group input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+        .form-group input:disabled { background: var(--bg-soft); color: var(--text-3); }
+        .toggle { position: relative; width: 38px; height: 22px; display: inline-block; flex-shrink: 0; }
+        .toggle input { display: none; }
+        .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: var(--border-strong); border-radius: 22px; transition: 0.2s; }
+        .toggle-slider::before { position: absolute; content: ""; height: 18px; width: 18px; left: 2px; bottom: 2px; background: #fff; border-radius: 50%; transition: 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
+        .toggle input:checked + .toggle-slider { background: var(--primary); }
+        .toggle input:checked + .toggle-slider::before { transform: translateX(16px); }
+        .save-btn { padding: 10px 36px; background: var(--primary); color: #fff; border: none; border-radius: var(--radius); font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.15s; }
+        .save-btn:hover:not(:disabled) { background: var(--primary-hover); }
+        .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .preview-wrap { position: relative; overflow: hidden; border-radius: var(--radius); background: #f0f1f4; aspect-ratio: 16/10; border: 1px solid var(--border); user-select: none; }
+        .preview-wrap img { display: block; width: 100%; height: 100%; object-fit: contain; transform-origin: 0 0; pointer-events: auto; }
+        .preview-controls { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+        .preview-controls .zoom-level { color: var(--text-3); font-size: 12px; min-width: 40px; text-align: center; }
+        .zoom-btn { width: 28px; height: 28px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-card); color: var(--text-1); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; transition: all 0.15s; }
+        .zoom-btn:hover { border-color: var(--primary); color: var(--primary); }
+        .progress-bar { width: 100%; height: 4px; background: var(--bg-soft); border-radius: 2px; overflow: hidden; margin: 10px 0; }
+        .progress-bar-fill { height: 100%; background: var(--primary); border-radius: 2px; transition: width 1s; }
+        .reading-info { display: flex; justify-content: space-between; color: var(--text-2); font-size: 12px; gap: 12px; flex-wrap: wrap; }
+        .book-item { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 8px; }
+        .book-item .book-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .book-item .book-title { font-weight: 600; color: var(--text-1); font-size: 13px; }
+        .ch-row { display: flex; gap: 6px; margin-top: 6px; align-items: center; }
+        .ch-row input { flex: 1; padding: 6px 10px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 12px; color: var(--text-1); }
+        .ch-row input[type=number] { width: 70px; flex: none; }
+        .ch-del-btn { width: 26px; height: 26px; background: var(--bg-card); color: var(--danger); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; transition: all 0.15s; display: flex; align-items: center; justify-content: center; }
+        .ch-del-btn:hover { background: var(--danger-soft); border-color: var(--danger); }
+        .add-btn { background: var(--primary-soft); color: var(--primary); border: 1px solid transparent; padding: 6px 12px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.15s; }
+        .add-btn:hover { background: var(--primary); color: #fff; }
+        .del-btn { background: var(--bg-card); color: var(--danger); border: 1px solid var(--border); padding: 3px 8px; border-radius: var(--radius-sm); cursor: pointer; font-size: 11px; transition: all 0.15s; }
+        .del-btn:hover { background: var(--danger-soft); border-color: var(--danger); }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(31, 35, 41, 0.5); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-overlay.active { display: flex; }
+        .modal-box { background: var(--bg-card); border-radius: var(--radius); padding: 28px; max-width: 400px; width: 90%; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.15); }
+        .modal-box h2 { font-size: 16px; margin-bottom: 8px; color: var(--text-1); }
+        .modal-box p { color: var(--text-2); margin-bottom: 16px; font-size: 13px; }
+        .qr-wrap { background: #fff; border-radius: var(--radius); padding: 10px; margin: 0 auto 16px; max-width: 240px; border: 1px solid var(--border); }
+        .qr-wrap img { width: 100%; display: block; border-radius: var(--radius-sm); }
+        .login-hint { background: var(--primary-soft); border: 1px solid #d6e4ff; border-radius: var(--radius); padding: 8px 12px; color: var(--text-2); font-size: 12px; margin-bottom: 12px; text-align: left; line-height: 1.6; }
+        .login-st { font-size: 13px; font-weight: 500; }
+        .login-st.info { color: var(--primary); }
+        .login-st.success { color: var(--success); }
+        .login-st.error { color: var(--danger); }
+        .spinner { width: 32px; height: 32px; border: 3px solid var(--primary-soft); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 32px auto; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .ch-divider { border-top: 1px solid var(--border); margin: 14px 0; }
+        .user-card { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 8px; }
+        .user-card .user-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .user-card .user-name { font-weight: 600; color: var(--text-1); }
+        .user-name-input { background: transparent; border: none; border-bottom: 1px solid var(--border); color: var(--text-1); font-weight: 600; font-size: 13px; outline: none; width: auto; min-width: 80px; padding: 2px 4px; transition: border-color 0.15s; }
+        .user-name-input:focus { border-bottom-color: var(--primary); }
+        .user-card .user-status { font-size: 11px; padding: 2px 8px; border-radius: 3px; }
+        .user-card .user-status.logged-in { background: var(--success-soft); color: var(--success); }
+        .user-card .user-status.not-logged { background: var(--danger-soft); color: var(--danger); }
+        .user-card .user-actions { display: flex; gap: 6px; margin-top: 6px; }
+        .user-card .user-info-text { font-size: 11px; color: var(--text-3); margin-top: 4px; }
+        .history-item { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; margin-bottom: 5px; }
+        .history-item .history-time { color: var(--text-3); font-size: 11px; margin-bottom: 2px; }
+        .history-item .history-content { font-size: 12px; color: var(--text-1); }
+        .history-item .history-mode { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 10.5px; font-weight: 500; }
+        .history-item .history-mode.api { background: var(--primary-soft); color: var(--primary); }
+        .history-item .history-mode.browser { background: #fef3c7; color: #b45309; }
+        .history-item .history-user { display: inline-block; color: var(--text-1); font-size: 13px; font-weight: 600; }
+        .history-item .history-status { font-size: 10px; line-height: 1; }
+        .history-item .history-status.success { color: var(--success); }
+        .history-item .history-status.failed { color: var(--danger); }
+        .stat-card { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 12px; text-align: center; }
+        .stat-card .stat-value { font-size: 20px; font-weight: 600; color: var(--text-1); }
+        .stat-card .stat-value .stat-unit { font-size: 11px; color: var(--text-3); font-weight: 400; margin-left: 3px; }
+        .stat-card .stat-label { color: var(--text-3); font-size: 11px; margin-top: 2px; }
+        /* 热力图(GitHub contributions 风格,精致版) */
+        /* 容器:柔背景 + 圆角,给主区留呼吸 */
+        .heatmap-wrap { margin-top: 12px; background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 18px 14px 18px; }
+        .heatmap-loading { color: var(--text-3); font-size: 12px; text-align: center; padding: 30px 0; }
+        .heatmap-layout { display: flex; gap: 6px; align-items: flex-start; }
+        .heatmap-main { flex: 1; min-width: 0; }
+        /* 月份标签:与 grid 列严格对齐,字号 11px,字距 +0.4px,顶 16px 行高;
+           文字居中在月份跨度内,通过内联 grid-column / span 实现;
+           整表用 fit-content 居中,列宽 = 格子宽(22px),跟 grid 严格对齐 */
+        .heatmap-months { display: grid; grid-template-columns: repeat(var(--hm-weeks, 9), 18px); column-gap: 4px; row-gap: 0; width: fit-content; margin: 0 auto 6px auto; color: var(--text-2); font-size: 11px; font-weight: 500; letter-spacing: 0.4px; line-height: 16px; height: 16px; }
+        .heatmap-months > div { text-align: center; overflow: visible; white-space: nowrap; }
+        /* 主网格:18×18 格子,横竖间距 4px,圆角 3px,行高 22px;
+           整表 fit-content 居中 */
+        .heatmap-grid { display: grid; grid-template-columns: repeat(var(--hm-weeks, 9), 18px); column-gap: 4px; row-gap: 4px; width: fit-content; margin: 0 auto; }
+        .heatmap-col { display: grid; grid-template-rows: repeat(7, 22px); gap: 0; }
+        .heatmap-col { display: grid; grid-template-rows: repeat(7, 22px); gap: 0; }
+        .heatmap-cell { width: 18px; height: 18px; border-radius: 3px; background: var(--hm-empty); cursor: pointer; transition: transform 0.12s ease, box-shadow 0.12s; }
+        .heatmap-cell:hover { transform: scale(1.4); z-index: 2; box-shadow: 0 0 0 1.5px var(--hm-today); }
+        .heatmap-cell.future { opacity: 0.22; cursor: default; }
+        .heatmap-cell.today { box-shadow: 0 0 0 1.5px var(--hm-today); }
+        .heatmap-cell.lvl-1 { background: var(--hm-l1); }
+        .heatmap-cell.lvl-2 { background: var(--hm-l2); }
+        .heatmap-cell.lvl-3 { background: var(--hm-l3); }
+        .heatmap-cell.lvl-4 { background: var(--hm-l4); }
+        .heatmap-cell.lvl-5 { background: var(--hm-l5); }
+        /* 底部一行:居中布局,统计和图例水平并列 */
+        .heatmap-footer { display: flex; justify-content: center; align-items: center; margin-top: 14px; flex-wrap: wrap; gap: 12px; }
+        .heatmap-summary { color: var(--text-2); font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
+        .heatmap-summary strong { color: var(--text-1); font-weight: 600; font-size: 14px; margin-right: 2px; }
+        .heatmap-summary .sep { color: var(--border-strong); margin: 0 6px; }
+        /* 图例:胶囊样式,每个色块带具体区间 */
+        .heatmap-legend { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; color: var(--text-3); font-size: 11px; }
+        .heatmap-legend .heatmap-cell { cursor: help; width: 11px; height: 11px; border-radius: 2px; }
+        .heatmap-legend .legend-tick { display: inline-block; }
+        .heatmap-tooltip { position: fixed; background: rgba(15, 17, 21, 0.94); color: #fff; font-size: 11.5px; padding: 7px 11px; border-radius: 5px; pointer-events: none; z-index: 9999; white-space: nowrap; box-shadow: 0 6px 18px rgba(0,0,0,0.2); line-height: 1.5; }
+        .heatmap-tooltip b { font-weight: 600; color: #fff; }
+        .heatmap-tooltip .tt-min { color: #40c463; font-weight: 600; }
+        .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+        .tab-nav { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+        .tab-btn { padding: 8px 16px; background: transparent; border: none; color: var(--text-2); cursor: pointer; font-size: 15px; font-weight: 600; transition: all 0.15s; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+        .tab-btn:hover { color: var(--text-1); }
+        .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .empty-state { text-align: center; padding: 24px 16px; color: var(--text-3); }
+        .empty-state .empty-icon { font-size: 1.5rem; margin-bottom: 4px; opacity: 0.4; }
+        .empty-state .empty-text { font-size: 12px; }
+        .notify-group { margin-bottom: 12px; }
+        .notify-group summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-2); padding: 6px 0; user-select: none; list-style: none; display: flex; align-items: center; gap: 6px; }
+        .notify-group summary::before { content: ""; display: inline-block; width: 0; height: 0; border: 4px solid transparent; border-left: 6px solid var(--text-3); transition: transform 0.15s; }
+        .notify-group[open] summary::before { transform: rotate(90deg); }
+        .notify-group summary:hover { color: var(--text-1); }
+        /* 每周奖励独立小卡 */
+        .weekly-card { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
+        .weekly-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+        .weekly-card-title { font-size: 14px; font-weight: 600; color: var(--text-1); display: flex; align-items: center; gap: 6px; }
+        .weekly-card-title::before { content: ""; display: inline-block; width: 4px; height: 14px; background: var(--primary); border-radius: 2px; }
+        .weekly-card-body { padding-left: 0; }
+        .weekly-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 8px; }
+        .weekly-status { font-size: 12px; color: var(--text-3); margin-top: 4px; line-height: 1.6; }
+        .weekly-status.ok { color: var(--success); }
+        .weekly-status.warn { color: var(--warning); }
+        .weekly-status.err { color: var(--danger); }
+        .test-btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+        .footer { text-align: center; padding: 24px 0 8px; color: var(--text-3); font-size: 12px; }
+        .footer a { color: var(--primary); text-decoration: none; }
+        .footer a:hover { text-decoration: underline; }
+        .toast-container { position: fixed; top: 16px; right: 16px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+        .toast { padding: 10px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; pointer-events: auto; animation: toastIn 0.25s ease; max-width: 360px; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.1); }
+        .toast.hiding { animation: toastOut 0.25s ease forwards; }
+        .toast.success { background: var(--success-soft); border: 1px solid #b8e6c5; color: var(--success); }
+        .toast.error { background: var(--danger-soft); border: 1px solid #fdc7c9; color: var(--danger); }
+        .toast.info { background: var(--primary-soft); border: 1px solid #c2d8fc; color: var(--primary); }
+        .toast.warning { background: var(--warning-soft); border: 1px solid #ffd9a8; color: var(--warning); }
+        @keyframes toastIn { from { opacity: 0; transform: translateX(100px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes toastOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(100px); } }
+        .confirm-overlay { display: flex; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(31, 35, 41, 0.5); z-index: 10000; justify-content: center; align-items: center; animation: fadeIn 0.2s ease; }
+        .confirm-box { background: var(--bg-card); border-radius: var(--radius); padding: 24px; max-width: 360px; width: 90%; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.15); animation: scaleIn 0.2s ease; }
+        .confirm-box p { color: var(--text-1); font-size: 14px; margin-bottom: 20px; line-height: 1.6; }
+        .confirm-actions { display: flex; gap: 10px; justify-content: center; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        @media (max-width: 768px) {
+            .container { padding: 16px 12px; }
+            .header { padding: 12px 16px; }
+            .header h1 { font-size: 16px; }
+            .card { padding: 14px 14px; }
+            .col-side { width: 100%; }
+            .mode-cards { grid-template-columns: 1fr; }
+            .stat-row { grid-template-columns: repeat(3, 1fr); }
+            .toast-container { top: 8px; right: 8px; left: 8px; }
+            .toast { max-width: 100%; }
+            .form-row { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 480px) {
+            .btn-group { flex-direction: column; }
+            .btn-group .btn { width: 100%; justify-content: center; }
+        }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+        .header-banner { background: var(--danger-soft); border: 1px solid #fdc7c9; color: var(--danger); padding: 8px 16px; text-align: center; font-size: 13px; border-radius: var(--radius); margin: 0 24px 16px; }
+        .header-banner button { margin-left: 12px; padding: 3px 12px; background: var(--danger); color: #fff; border: none; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; }
+        .search-row { display: flex; gap: 8px; align-items: center; }
+        .search-row input { flex: 1; padding: 7px 11px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; background: var(--bg-card); color: var(--text-1); outline: none; }
+        .search-row input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
     </style>
+
 </head>
 <body>
 <div class="toast-container" id="toastContainer"></div>
 
+<div class="header">
+    <div class="header-left">
+        <div class="logo">W</div>
+        <h1>WeReadGears<span class="header-sub">· 微信读书自动阅读</span></h1>
+    </div>
+    <div class="header-right">
+        <button id="btnTheme" class="theme-btn" type="button" title="切换夜间模式" aria-label="切换夜间模式">
+            <svg class="theme-icon-sun" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+            <svg class="theme-icon-moon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <span id="headerCookieBadge" style="display:none" class="user-pill"><span class="dot bad"></span>Cookie 已失效,部分功能受限</span>
+        <span id="headerUserPill" class="user-pill" style="display:none"><span class="dot ok"></span><span id="headerUserName"></span></span>
+    </div>
+</div>
 <div class="container">
-    <div class="header">
-        <div style="display:flex;align-items:center;justify-content:center;gap:20px">
-            <div class="gear-wrap" style="display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:14px;background:rgba(99,102,241,.08)">
-                <svg viewBox="140 170 780 780" width="38" height="38">
-                    <defs>
-                        <linearGradient id="gearGradient" x1="180" y1="180" x2="850" y2="850" gradientUnits="userSpaceOnUse">
-                            <stop offset="0%" stop-color="#1EC8FF"/>
-                            <stop offset="45%" stop-color="#2864FF"/>
-                            <stop offset="100%" stop-color="#8A22FF"/>
-                        </linearGradient>
-                        <radialGradient id="glowGradient" cx="50%" cy="45%" r="50%">
-                            <stop offset="0%" stop-color="#3BCBFF" stop-opacity="0.55"/>
-                            <stop offset="55%" stop-color="#6633FF" stop-opacity="0.28"/>
-                            <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
-                        </radialGradient>
-                        <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
-                            <feGaussianBlur stdDeviation="38" result="blur"/>
-                            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-                        </filter>
-                        <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-                            <feDropShadow dx="0" dy="24" stdDeviation="34" flood-color="#3F2CFF" flood-opacity="0.35"/>
-                        </filter>
-                    </defs>
-                    <circle cx="530" cy="544" r="360" fill="url(#glowGradient)" filter="url(#softGlow)"/>
-                    <g class="gear-icon" filter="url(#shadow)" style="transform-origin:530px 544px">
-                        <path fill="url(#gearGradient)" fill-rule="evenodd" d="M512 178C538 178 560 180 584 184L600 264C616 269 632 276 647 284L716 239C755 266 790 301 817 340L772 409C780 424 787 440 792 456L872 472C876 496 878 518 878 544C878 570 876 592 872 616L792 632C787 648 780 664 772 679L817 748C790 787 755 822 716 849L647 804C632 812 616 819 600 824L584 904C560 908 538 910 512 910C486 910 464 908 440 904L424 824C408 819 392 812 377 804L308 849C269 822 234 787 207 748L252 679C244 664 237 648 232 632L152 616C148 592 146 570 146 544C146 518 148 496 152 472L232 456C237 440 244 424 252 409L207 340C234 301 269 266 308 239L377 284C392 276 408 269 424 264L440 184C464 180 486 178 512 178ZM512 336C397 336 304 429 304 544C304 659 397 752 512 752C627 752 720 659 720 544C720 429 627 336 512 336Z"/>
-                        <circle cx="512" cy="544" r="132" fill="#17191D" opacity="0.96"/>
-                        <circle cx="512" cy="544" r="185" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="22"/>
-                        <circle cx="512" cy="544" r="132" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
-                    </g>
-                </svg>
-            </div>
-            <div>
-                <h1 style="font-size:2rem;font-weight:700;background:linear-gradient(135deg,#6366f1,#06b6d4,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin:0;letter-spacing:-.5px;line-height:1.2">WeReadGears</h1>
-                <p style="color:#64748b;font-size:.85rem;margin:2px 0 0 0">微信读书 · 自动阅读</p>
-            </div>
-        </div>
+    <div id="reloginBanner" class="header-banner" style="display:none">
+        <span>Cookie 已失效,模拟模式不可用。请重新扫码登录后继续。</span>
+        <button onclick="openLoginModal()">立即重新登录</button>
     </div>
     <form id="configForm">
     <div class="row">
@@ -251,7 +389,7 @@
                         <span class="zoom-level" id="zoomLabel">100%</span>
                         <button class="zoom-btn" type="button" onclick="adjustZoom(.1)">+</button>
                         <button class="zoom-btn" type="button" onclick="adjustZoom(0)">&#x21BA;</button>
-                        <input type="text" id="navUrl" value="https://weread.qq.com/" placeholder="URL" style="flex:1;min-width:120px;padding:8px 12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);border-radius:8px;font-size:.82rem;color:#f8fafc">
+                        <input type="text" id="navUrl" value="https://weread.qq.com/" placeholder="URL" style="flex:1;min-width:120px;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;font-size:.82rem;color:var(--text-1)">
                         <button class="btn btn-secondary" type="button" style="padding:8px 16px;font-size:.8rem" onclick="navigateBrowser()">跳转</button>
                     </div>
                 </div>
@@ -262,18 +400,18 @@
                         <span id="progressStatus">空闲</span>
                         <span id="progressBook"></span>
                     </div>
-                    <div class="reading-info" style="background:rgba(255,255,255,.03);border-radius:10px;padding:12px;margin-bottom:8px">
+                    <div class="reading-info" style="background:var(--bg-card);border-radius:10px;padding:12px;margin-bottom:8px">
                         <div style="display:flex;justify-content:space-between;margin-bottom:6px">
                             <span id="progressTime"></span>
                             <span id="progressTimeRight"></span>
                         </div>
-                        <div style="display:flex;justify-content:space-between;color:#64748b;font-size:.75rem">
+                        <div style="display:flex;justify-content:space-between;color:var(--text-3);font-size:.75rem">
                             <span id="progressStartTime"></span>
                             <span id="progressEndTime"></span>
                         </div>
                     </div>
-                    <div id="logConsole" style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:10px;max-height:200px;overflow-y:auto;font-family:monospace;font-size:0.75rem;line-height:1.6;color:#94a3b8">
-                        <div style="color:#64748b">等待日志...</div>
+                    <div id="logConsole" style="background:#1f2329;border:1px solid var(--border);border-radius:var(--radius);padding:10px;max-height:200px;overflow-y:auto;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.6;color:#c9cdd4">
+                        <div style="color:var(--text-3)">等待日志...</div>
                     </div>
                 </div>
             </div>
@@ -288,9 +426,9 @@
                 <div class="form-group">
                     <label>阅读模式</label>
                     <div style="display:flex;gap:20px;flex-wrap:wrap;">
-                        <label style="display:flex;align-items:center;gap:8px;color:#94a3b8;font-size:.85rem;cursor:pointer"><input type="radio" name="reading_mode" value="smart_random" {{ 'checked' if reading.mode == 'smart_random' else '' }} style="accent-color:#6366f1"> 智能随机</label>
-                        <label style="display:flex;align-items:center;gap:8px;color:#94a3b8;font-size:.85rem;cursor:pointer"><input type="radio" name="reading_mode" value="sequential" {{ 'checked' if reading.mode == 'sequential' else '' }} style="accent-color:#6366f1"> 顺序阅读</label>
-                        <label style="display:flex;align-items:center;gap:8px;color:#94a3b8;font-size:.85rem;cursor:pointer"><input type="radio" name="reading_mode" value="pure_random" {{ 'checked' if reading.mode == 'pure_random' else '' }} style="accent-color:#6366f1"> 纯随机</label>
+                        <label style="display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:.85rem;cursor:pointer"><input type="radio" name="reading_mode" value="smart_random" {{ 'checked' if reading.mode == 'smart_random' else '' }} style="accent-color:var(--primary)"> 智能随机</label>
+                        <label style="display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:.85rem;cursor:pointer"><input type="radio" name="reading_mode" value="sequential" {{ 'checked' if reading.mode == 'sequential' else '' }} style="accent-color:var(--primary)"> 顺序阅读</label>
+                        <label style="display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:.85rem;cursor:pointer"><input type="radio" name="reading_mode" value="pure_random" {{ 'checked' if reading.mode == 'pure_random' else '' }} style="accent-color:var(--primary)"> 纯随机</label>
                     </div>
                 </div>
             </div>
@@ -298,11 +436,15 @@
             <!-- 书籍配置 -->
             <div class="card">
                 <div class="card-title">书籍配置</div>
-                <p style="color:#64748b;font-size:.85rem;margin-bottom:16px">不配置则自动从书架导入</p>
+                <p style="color:var(--text-3);font-size:.85rem;margin-bottom:16px">不配置则自动从书架导入</p>
+                <div class="search-row" style="margin-bottom:12px">
+                    <input type="text" id="bookSearchInput" placeholder="输入书名搜索并加入配置 (例: 明朝那些事儿)">
+                    <button type="button" id="bookSearchBtn" class="btn btn-primary" onclick="openGlobalSearchBookModal()">搜索书籍</button>
+                </div>
                 <div id="bookList"></div>
                 <div style="display:flex;gap:8px;margin-top:12px">
-                    <button type="button" class="add-btn" onclick="addBook()">+ 添加书籍</button>
-                    <button type="button" class="add-btn" onclick="importShelf()" style="background:rgba(6,182,212,.1);color:#06b6d4">从书架导入</button>
+                    <button type="button" class="add-btn" onclick="addBook()">+ 手动添加(空)</button>
+                    <button type="button" class="add-btn" onclick="importShelf()">从书架导入</button>
                 </div>
                 <div id="searchResults" style="margin-top:12px"></div>
                 <input type="hidden" name="books_json" id="booksJson" value="[]">
@@ -355,15 +497,31 @@
                 <div class="form-group">
                     <label>通知模式</label>
                     <div style="display:flex;gap:20px;flex-wrap:wrap;">
-                        <label style="display:flex;align-items:center;gap:8px;color:#94a3b8;font-size:.85rem;cursor:pointer"><input type="radio" name="notification_only_on_failure" value="false" {{ 'checked' if not notification.only_on_failure else '' }} style="accent-color:#6366f1"> 所有事件</label>
-                        <label style="display:flex;align-items:center;gap:8px;color:#94a3b8;font-size:.85rem;cursor:pointer"><input type="radio" name="notification_only_on_failure" value="true" {{ 'checked' if notification.only_on_failure else '' }} style="accent-color:#6366f1"> 仅失败</label>
+                        <label style="display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:.85rem;cursor:pointer"><input type="radio" name="notification_only_on_failure" value="false" {{ 'checked' if not notification.only_on_failure else '' }} style="accent-color:var(--primary)"> 所有事件</label>
+                        <label style="display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:.85rem;cursor:pointer"><input type="radio" name="notification_only_on_failure" value="true" {{ 'checked' if notification.only_on_failure else '' }} style="accent-color:var(--primary)"> 仅失败</label>
                     </div>
                 </div>
-                <div class="form-group">
-                    <label>每周奖励提醒</label>
-                    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-                        <label class="toggle"><input type="checkbox" name="weekly_reward_reminder" {{ 'checked' if notification.get('weekly_reward_reminder', True) else '' }}><span class="toggle-slider"></span></label>
-                        <span style="color:#94a3b8;font-size:.85rem">今天是 {{ weekly_info.today_full }}，下次提醒：{{ weekly_info.next_sunday_full }}</span>
+                <div class="weekly-card">
+                    <div class="weekly-card-head">
+                        <div class="weekly-card-title">每周奖励提醒</div>
+                        <label class="toggle"><input type="checkbox" name="weekly_reward_reminder" id="weeklyRewardToggle" {{ 'checked' if notification.get('weekly_reward_reminder', True) else '' }}><span class="toggle-slider"></span></label>
+                    </div>
+                    <div class="weekly-card-body">
+                        <div class="weekly-row">
+                            <div class="form-group" style="margin-bottom:0">
+                                <label>提醒时间</label>
+                                <div style="display:flex;gap:8px;align-items:center">
+                                    <select name="weekly_reward_day" id="weeklyRewardDay" style="padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);color:var(--text-1);font-size:13px;min-width:90px">
+                                        {% for i, name in [(0,'周一'),(1,'周二'),(2,'周三'),(3,'周四'),(4,'周五'),(5,'周六'),(6,'周日')] %}
+                                        <option value="{{ i }}" {{ 'selected' if notification.get('weekly_reward_day', 6) == i else '' }}>{{ name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <input type="time" name="weekly_reward_time" id="weeklyRewardTime" value="{{ notification.get('weekly_reward_time', '10:00') }}" style="padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);color:var(--text-1);font-size:13px;color-scheme:light">
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="testWeeklyNotification()">测试提醒</button>
+                        </div>
+                        <div id="weeklyStatus" class="weekly-status">加载中…</div>
                     </div>
                 </div>
                 <div class="ch-divider"></div>
@@ -477,8 +635,8 @@
                     </div>
                 </details>
 
-                <div class="btn-group" style="margin-top:16px">
-                    <button type="button" class="btn btn-secondary" id="btnTestNotify" onclick="testNotification()">测试推送</button>
+                <div class="test-btn-row" style="margin-top:14px">
+                    <button type="button" class="btn btn-secondary btn-sm" id="btnTestNotify" onclick="testNotification()">测试常规通知</button>
                 </div>
             </div>
 
@@ -494,21 +652,33 @@
                     <div class="status-item"><div class="label">进程</div><div class="value success">正常</div></div>
                     <div class="status-item"><div class="label">登录</div><div class="value {{ 'success' if cookies_valid else 'error' }}" id="loginStatus">{{ '已登录' + (': ' + logged_in_user if logged_in_user else '') if cookies_valid else '未登录' }}</div></div>
                 </div>
-                <div class="status-btn-group">
-                    <button type="button" class="status-btn status-btn-primary" id="btnRead" onclick="triggerReading()">立即阅读</button>
-                    <button type="button" class="status-btn status-btn-secondary" id="btnCurl" onclick="captureCurl()">获取CURL</button>
-                    <button type="button" class="status-btn status-btn-secondary" id="btnLogin" onclick="openLoginModal()">登录</button>
-                    <button type="button" class="status-btn status-btn-danger" id="btnLogout" onclick="doLogout()" style="display:none">退出</button>
-                </div>
+                    <div class="status-btn-group">
+                        <button type="button" class="status-btn status-btn-primary" id="btnRead" onclick="triggerReading()">立即阅读</button>
+                        <button type="button" class="status-btn status-btn-secondary" id="btnCurl" onclick="captureCurl()">获取CURL</button>
+                        <button type="button" class="status-btn status-btn-secondary" id="btnLogin" onclick="openLoginModal()" style="{{ 'display:none' if cookies_valid else '' }}">登录</button>
+                        <button type="button" class="status-btn status-btn-danger" id="btnLogout" onclick="doLogout()" style="{{ '' if cookies_valid else 'display:none' }}">退出</button>
+                    </div>
             </div>
 
             <!-- 统计 -->
             <div class="card">
-                <div class="card-title">统计</div>
+                <div class="card-title">阅读统计</div>
                 <div class="stat-row">
-                    <div class="stat-card"><div class="stat-value" id="statToday">{{ "%.1f"|format(statistics.today.total_minutes) }}</div><div class="stat-label">今日(分钟)</div></div>
-                    <div class="stat-card"><div class="stat-value">{{ statistics.week.sessions }}</div><div class="stat-label">本周(次)</div></div>
-                    <div class="stat-card"><div class="stat-value">{{ statistics.total.sessions }}</div><div class="stat-label">总计(次)</div></div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statToday">{{ statistics.today_fmt.value }}<span class="stat-unit">{{ statistics.today_fmt.unit }}</span></div>
+                        <div class="stat-label">今日</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statWeek">{{ statistics.week_fmt.value }}<span class="stat-unit">{{ statistics.week_fmt.unit }}</span></div>
+                        <div class="stat-label">本周</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statTotal">{{ statistics.total_fmt.value }}<span class="stat-unit">{{ statistics.total_fmt.unit }}</span></div>
+                        <div class="stat-label">总计</div>
+                    </div>
+                </div>
+                <div class="heatmap-wrap" id="heatmapWrap">
+                    <div class="heatmap-loading">加载热力图…</div>
                 </div>
             </div>
 
@@ -553,12 +723,47 @@
 <div class="modal-overlay" id="usernameModal">
     <div class="modal-box">
         <h2>设置用户名</h2>
-        <p style="color:#64748b;margin-bottom:16px">请为您的账号设置一个名称（用于多账号切换）</p>
-        <input type="text" id="inputUsername" class="input-field" placeholder="请输入用户名" style="width:100%;padding:12px;border-radius:8px;border:1px solid rgba(99,102,241,.3);background:rgba(255,255,255,.05);color:#e2e8f0;font-size:1rem;outline:none;box-sizing:border-box">
-        <div id="usernameError" style="color:#ef4444;font-size:.85rem;margin-top:8px;display:none"></div>
+        <p style="color:var(--text-3);margin-bottom:16px">请为您的账号设置一个名称（用于多账号切换）</p>
+        <input type="text" id="inputUsername" class="input-field" placeholder="请输入用户名" style="width:100%;padding:12px;border-radius:8px;border:1px solid var(--primary-soft);background:var(--bg-card);color:var(--text-1);font-size:1rem;outline:none;box-sizing:border-box">
+        <div id="usernameError" style="color:var(--danger);font-size:.85rem;margin-top:8px;display:none"></div>
         <div class="btn-group" style="justify-content:center;margin-top:20px">
             <button type="button" class="btn btn-secondary" onclick="closeUsernameModal()">取消</button>
             <button type="button" class="btn btn-primary" id="btnConfirmUsername" onclick="confirmUsername()">确认</button>
+        </div>
+    </div>
+</div>
+
+<!-- 书籍搜索结果弹窗 -->
+<div class="modal-overlay" id="searchBookModal">
+    <div class="modal-box" style="max-width:560px;text-align:left">
+        <h2 style="text-align:center;margin-bottom:8px">搜索结果</h2>
+        <p id="searchBookQuery" style="color:var(--text-3);text-align:center;margin-bottom:16px;font-size:.9rem"></p>
+        <div id="searchBookStatus" style="color:var(--text-2);font-size:.85rem;text-align:center;padding:18px 0">点击搜索按钮后开始...</div>
+        <div id="searchBookList" style="max-height:420px;overflow-y:auto;display:flex;flex-direction:column;gap:8px"></div>
+        <div class="btn-group" style="justify-content:center;margin-top:18px">
+            <button type="button" class="btn btn-secondary" onclick="closeSearchBookModal()">关闭</button>
+        </div>
+    </div>
+</div>
+
+<!-- 书架导入 - 多选 + 搜索 -->
+<div class="modal-overlay" id="shelfImportModal">
+    <div class="modal-box" style="max-width:620px;text-align:left">
+        <h2 style="text-align:center;margin-bottom:8px">从书架导入</h2>
+        <p id="shelfImportHint" style="color:var(--text-3);text-align:center;margin-bottom:12px;font-size:.85rem">加载中...</p>
+        <div style="margin-bottom:10px">
+            <input type="text" id="shelfImportSearch" placeholder="搜索书架(按书名/作者过滤)" style="width:100%;padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;font-size:.9rem;color:var(--text-1);outline:none;box-sizing:border-box">
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:10px;font-size:.82rem">
+            <button type="button" class="btn btn-secondary" onclick="shelfImportSelectAll(true)" style="padding:6px 12px;font-size:.78rem">全选</button>
+            <button type="button" class="btn btn-secondary" onclick="shelfImportSelectAll(false)" style="padding:6px 12px;font-size:.78rem">全不选</button>
+            <button type="button" class="btn btn-secondary" onclick="shelfImportSelectInvert()" style="padding:6px 12px;font-size:.78rem">反选</button>
+            <span id="shelfImportCount" style="margin-left:auto;color:var(--text-2);align-self:center">已选 0/0</span>
+        </div>
+        <div id="shelfImportList" style="max-height:380px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;border:1px solid var(--border);border-radius:10px;padding:8px"></div>
+        <div class="btn-group" style="justify-content:flex-end;margin-top:14px;gap:8px">
+            <button type="button" class="btn btn-secondary" onclick="closeShelfImportModal()">取消</button>
+            <button type="button" class="btn btn-primary" id="shelfImportConfirm" onclick="confirmShelfImport()">导入选中</button>
         </div>
     </div>
 </div>
@@ -718,13 +923,30 @@ function loadHistory() {
         var h = document.getElementById('historyList');
         var items = d.history || [];
         if (!items.length) { h.innerHTML = '<div class="empty-state"><div class="empty-icon">&#x1F4C4;</div><div class="empty-text">暂无阅读记录</div></div>'; return; }
+        // 阅读方式映射:execution_type → 中文标签
+        function fmtMode(t) {
+            if (t === 'api') return 'API 模式';
+            if (t === 'browser') return '模拟模式';
+            return t || '—';
+        }
         h.innerHTML = items.map(function(i) {
             var statusCls = i.final_status === 'completed' ? 'success' : 'failed';
-            var reads = i.total_reads || 0, failed = i.failed_reads || 0;
             var totalSec = i.total_duration_seconds || 0;
             var hours = Math.floor(totalSec / 3600), mins = Math.floor((totalSec % 3600) / 60), secs = totalSec % 60;
-            var dur = ''; if (hours > 0) dur += hours + '时'; dur += mins + '分' + secs + '秒';
-            return '<div class="history-item"><div class="history-time">' + fmtTime(i.recorded_at) + '</div><div class="history-content" style="display:flex;justify-content:space-between;align-items:center"><span><span class="history-status ' + statusCls + '">' + fmtStatus(i.final_status) + '</span> <strong>' + (i.user || '?') + '</strong> · ' + dur + '</span><span style="color:#64748b;font-size:0.75rem">' + reads + '次' + (failed ? ' · 失败' + failed + '次' : '') + '</span></div></div>';
+            var dur = '';
+            if (hours > 0) dur += hours + ' 时 ';
+            if (hours > 0 || mins > 0) dur += mins + ' 分';
+            if (hours === 0 && mins < 10) dur += secs + ' 秒';
+            dur = dur.trim() || '0 分';
+            return '<div class="history-item">' +
+                '<div class="history-time">' + fmtTime(i.recorded_at) + '</div>' +
+                '<div class="history-content" style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
+                    '<span class="history-user" title="用户">' + (i.user || '-') + '</span>' +
+                    '<span class="history-mode ' + (i.execution_type || '') + '">' + fmtMode(i.execution_type) + '</span>' +
+                    '<span style="color:var(--text-1);font-weight:500">' + dur + '</span>' +
+                    '<span class="history-status ' + statusCls + '" title="' + fmtStatus(i.final_status) + '">●</span>' +
+                '</div>' +
+            '</div>';
         }).join('');
     });
 }
@@ -874,6 +1096,51 @@ async function confirmUsername() {
 }
 window.confirmUsername = confirmUsername;
 
+// === 轮询 cookie 状态(检测 needs_relogin) ===
+async function checkCookieHealth() {
+    try {
+        var r = await fetch('/login/status');
+        var d = await r.json();
+        var badge = document.getElementById('headerCookieBadge');
+        var pill = document.getElementById('headerUserPill');
+        var nameEl = document.getElementById('headerUserName');
+        if (d.needs_relogin) {
+            showReloginBanner(d.relogin_reason || '登录已过期');
+            if (badge) badge.style.display = 'inline-flex';
+            if (pill) pill.style.display = 'none';
+        } else {
+            hideReloginBanner();
+            if (badge) badge.style.display = 'none';
+            if (pill && d.user_name) {
+                nameEl.textContent = d.user_name;
+                pill.style.display = 'inline-flex';
+            } else if (pill) {
+                pill.style.display = 'none';
+            }
+        }
+    } catch (e) {}
+}
+window.checkCookieHealth = checkCookieHealth;
+
+function showReloginBanner(reason) {
+    var banner = document.getElementById('reloginBanner');
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'reloginBanner';
+        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#f53f3f;color:#fff;padding:10px 20px;text-align:center;font-weight:500;box-shadow:0 2px 8px rgba(0,0,0,0.1);display:flex;align-items:center;justify-content:center;gap:12px';
+        document.body.prepend(banner);
+    }
+    if (banner.innerHTML.indexOf(reason) >= 0) return;
+    banner.innerHTML = '<span>登录已过期:' + esc(reason) + '</span> <button onclick="openLoginModal()" style="background:#fff;color:#f53f3f;border:none;padding:4px 14px;border-radius:4px;font-weight:500;cursor:pointer;margin-left:8px">立即重新登录</button>';
+}
+window.showReloginBanner = showReloginBanner;
+
+function hideReloginBanner() {
+    var b = document.getElementById('reloginBanner');
+    if (b) b.remove();
+}
+window.hideReloginBanner = hideReloginBanner;
+
 // === 阅读触发 ===
 async function triggerReading() {
     var btn = document.getElementById('btnRead');
@@ -956,7 +1223,7 @@ function startProgressPoll() {
         }).catch(function() {});
         fetch('/api-reading-logs').then(function(r) { return r.json(); }).then(function(logs) {
             var c = document.getElementById('logConsole');
-            if (!logs || !logs.length) { c.innerHTML = '<div style="color:#64748b">等待日志...</div>'; return; }
+            if (!logs || !logs.length) { c.innerHTML = '<div style="color:var(--text-3)">等待日志...</div>'; return; }
             c.innerHTML = logs.map(function(l) { return '<div>[' + l.time + '] ' + l.msg + '</div>'; }).join('');
             c.scrollTop = c.scrollHeight;
         }).catch(function() {});
@@ -970,12 +1237,241 @@ function startProgressPoll() {
 function testNotification() {
     var btn = document.getElementById('btnTestNotify');
     withLoading(btn, function() {
-        return fetch('/test-notification', {method: 'POST'}).then(function(r) { return r.json(); }).then(function(d) {
-            showToast(d.message, d.status === 'ok' ? 'success' : 'error');
+        return fetch('/test-notification', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({type: 'general'})
+        }).then(function(r) { return r.json(); }).then(function(d) {
+            showToast(d.message || '已发送', d.status === 'ok' ? 'success' : 'error');
         });
     });
 }
 window.testNotification = testNotification;
+
+function testWeeklyNotification() {
+    var btn = event && event.target;
+    var loader = btn ? withLoading(btn, function() { return sendWeeklyTest(); }) : sendWeeklyTest();
+    function sendWeeklyTest() {
+        return fetch('/test-notification', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({type: 'weekly_reward'})
+        }).then(function(r) { return r.json(); }).then(function(d) {
+            showToast(d.message || '已发送', d.status === 'ok' ? 'success' : 'error');
+            if (d.status === 'ok') {
+                refreshWeeklyStatus();
+            }
+        });
+    }
+}
+window.testWeeklyNotification = testWeeklyNotification;
+
+function refreshWeeklyStatus() {
+    var el = document.getElementById('weeklyStatus');
+    if (!el) return;
+    var toggle = document.getElementById('weeklyRewardToggle');
+    var enabled = toggle ? toggle.checked : true;
+    if (!enabled) {
+        el.className = 'weekly-status warn';
+        el.textContent = '每周奖励提醒已关闭,不会发送。';
+        return;
+    }
+    el.className = 'weekly-status';
+    el.textContent = '正在读取调度状态…';
+    fetch('/api/weekly-status').then(function(r) { return r.json(); }).then(function(d) {
+        if (d.error) {
+            el.className = 'weekly-status err';
+            el.textContent = '读取失败:' + d.error;
+            return;
+        }
+        var dayMap = ['周一','周二','周三','周四','周五','周六','周日'];
+        var day = (d.day !== undefined && d.day !== null) ? dayMap[d.day] : '周日';
+        var time = d.time || '10:00';
+        var next = d.next_run || '待计算';
+        el.className = 'weekly-status ok';
+        el.innerHTML = '每周 <b>' + day + ' ' + time + '</b> 提醒 · 下次触发: <b>' + next + '</b>';
+    }).catch(function(e) {
+        el.className = 'weekly-status err';
+        el.textContent = '读取失败:' + e;
+    });
+}
+window.refreshWeeklyStatus = refreshWeeklyStatus;
+
+// === 阅读统计刷新 ===
+function refreshStatistics() {
+    fetch('/statistics').then(function(r){ return r.json(); }).then(function(d) {
+        if (!d || d.error) return;
+        function setStat(prefix, fmt) {
+            var el = document.getElementById(prefix);
+            if (!el || !fmt) return;
+            el.innerHTML = fmt.value + '<span class="stat-unit">' + fmt.unit + '</span>';
+        }
+        setStat('statToday', d.today_fmt);
+        setStat('statWeek', d.week_fmt);
+        setStat('statTotal', d.total_fmt);
+    }).catch(function(){});
+}
+window.refreshStatistics = refreshStatistics;
+
+// === 阅读热力图刷新 ===
+var _heatmapTooltip = null;
+function ensureTooltip() {
+    if (_heatmapTooltip) return _heatmapTooltip;
+    var t = document.createElement('div');
+    t.className = 'heatmap-tooltip';
+    t.style.display = 'none';
+    document.body.appendChild(t);
+    _heatmapTooltip = t;
+    return t;
+}
+function showHeatmapTooltip(e, html) {
+    var t = ensureTooltip();
+    t.innerHTML = html;
+    t.style.display = 'block';
+    // 位置:鼠标右上,防溢出
+    var x = (e.clientX || 0) + 12;
+    var y = (e.clientY || 0) - 40;
+    t.style.left = x + 'px';
+    t.style.top  = y + 'px';
+}
+function hideHeatmapTooltip() { if (_heatmapTooltip) _heatmapTooltip.style.display = 'none'; }
+
+// 5 档(0-5 分钟级数)对应的中文标签
+var HM_LEVELS = [
+    { min: 0,  label: '未打卡', color: '' },
+    { min: 1,  label: '<30 分钟', color: 'lvl-1' },
+    { min: 30, label: '30-60 分钟', color: 'lvl-2' },
+    { min: 60, label: '1-1.5 小时', color: 'lvl-3' },
+    { min: 90, label: '1.5-2 小时', color: 'lvl-4' },
+    { min: 120, label: '> 2 小时', color: 'lvl-5' },
+];
+function levelForMinutes(m) {
+    if (m <= 0) return 0;
+    if (m < 30) return 1;
+    if (m < 60) return 2;
+    if (m < 90) return 3;
+    if (m < 120) return 4;
+    return 5;
+}
+
+function refreshHeatmap() {
+    var wrap = document.getElementById('heatmapWrap');
+    if (!wrap) return;
+    var weeks = 9;
+    var today = new Date().toISOString().slice(0, 10);
+    fetch('/api/heatmap?weeks=' + weeks).then(function(r){ return r.json(); }).then(function(d) {
+        if (!d || d.error) { wrap.innerHTML = '<div class="heatmap-loading">热力图加载失败</div>'; return; }
+        if (!d.cells || !d.cells.length) { wrap.innerHTML = '<div class="heatmap-loading">暂无阅读数据</div>'; return; }
+
+        // 月份标签:用 grid-column span 让 label 横跨该月所有列,精确对齐
+        // 前端自己算 span(后端 span 字段可能未生效),用下一个 label 的 col 推算
+        // 关键:months 容器总宽 = grid 容器总宽(label 跨度刚好填满,无溢出)
+        var monthCells = [];
+        var labels = (d.month_labels || []).filter(function(m){ return m.col >= 0 && m.col < weeks; });
+        labels.forEach(function(m, i) {
+            var start = m.col + 1; // grid 1-indexed
+            // 优先用后端 span(重启后),否则前端算:下个 label 起点 - 当前 col
+            var span = m.span && m.span > 0
+                ? m.span
+                : (i + 1 < labels.length ? labels[i + 1].col - m.col : weeks - m.col);
+            span = Math.max(1, span);
+            var end = start + span;
+            // 超出 weeks 时裁剪(避免最后 label 溢出)
+            if (end - 1 > weeks) end = weeks + 1;
+            monthCells.push('<div style="grid-column:' + start + '/' + end + '">' + m.name + '</div>');
+        });
+        var monthsHtml = '<div class="heatmap-months" style="--hm-weeks:' + weeks + '">' + monthCells.join('') + '</div>';
+
+        // 主网格
+        var gridHtml = '<div class="heatmap-grid" style="--hm-weeks:' + weeks + '">';
+        var totalMins = 0, activeDays = 0;
+        d.cells.forEach(function(col) {
+            gridHtml += '<div class="heatmap-col">';
+            col.forEach(function(c) {
+                var lvl = c.is_future ? 0 : levelForMinutes(c.minutes);
+                var cls = 'heatmap-cell lvl-' + lvl;
+                if (c.is_future) cls += ' future';
+                if (c.date === today && !c.is_future) cls += ' today';
+                if (!c.is_future) {
+                    if (c.minutes > 0) activeDays++;
+                    totalMins += c.minutes;
+                }
+                gridHtml += '<div class="' + cls + '" data-date="' + c.date + '" data-minutes="' + c.minutes + '"></div>';
+            });
+            gridHtml += '</div>';
+        });
+        gridHtml += '</div>';
+
+        // 总分钟数 格式化
+        var totalMinsRounded = Math.round(totalMins);
+        var hrs = Math.floor(totalMinsRounded / 60);
+        var mins = totalMinsRounded % 60;
+        var totalStr = hrs > 0 ? (hrs + ' 小时 ' + mins + ' 分') : (mins + ' 分钟');
+
+        // 左侧统计
+        var summaryHtml = '<div class="heatmap-summary">' +
+            '<strong>' + activeDays + '</strong> 天打卡' +
+            '<span class="sep">·</span>' +
+            '<strong>' + totalStr + '</strong> 总阅读' +
+        '</div>';
+
+        // 右侧图例胶囊:每色块带具体区间,自定义 tooltip(去掉原生 title 避免双弹)
+        var legendItems = [
+            { cls: '',      label: '未打卡',     title: '0 分钟(未打卡)' },
+            { cls: 'lvl-1', label: '< 30 分钟',  title: '1 - 29 分钟' },
+            { cls: 'lvl-2', label: '30-60 分钟', title: '30 - 59 分钟' },
+            { cls: 'lvl-3', label: '1-1.5 小时', title: '60 - 89 分钟' },
+            { cls: 'lvl-4', label: '1.5-2 小时', title: '90 - 119 分钟' },
+            { cls: 'lvl-5', label: '> 2 小时',   title: '>= 120 分钟' }
+        ];
+        var legendHtml = '<div class="heatmap-legend">' +
+            legendItems.map(function(it) {
+                return '<div class="heatmap-cell ' + it.cls + '" data-legend-title="' + it.title + '"></div>';
+            }).join('') +
+        '</div>';
+
+        var footerHtml = '<div class="heatmap-footer">' + summaryHtml + legendHtml + '</div>';
+
+        wrap.innerHTML = monthsHtml + gridHtml + footerHtml;
+
+        // hover 显示明细(数据格 + 图例都走同一套 tooltip,去掉原生 title)
+        wrap.querySelectorAll('.heatmap-cell').forEach(function(el) {
+            el.addEventListener('mousemove', function(e) {
+                var t = el.getAttribute('data-legend-title');
+                if (t) {
+                    showHeatmapTooltip(e, t);
+                    return;
+                }
+                var d = el.getAttribute('data-date');
+                var m = parseFloat(el.getAttribute('data-minutes') || '0');
+                if (el.classList.contains('future')) {
+                    showHeatmapTooltip(e, '<b>' + d + '</b><br><span style="color:#aaa">未来</span>');
+                } else if (m <= 0) {
+                    showHeatmapTooltip(e, '<b>' + d + '</b><br><span style="color:#aaa">未打卡</span>');
+                } else {
+                    showHeatmapTooltip(e, '<b>' + d + '</b><br><span class="tt-min">' + m + ' 分钟</span>');
+                }
+            });
+            el.addEventListener('mouseleave', hideHeatmapTooltip);
+            el.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (el.getAttribute('data-legend-title')) return; // 图例方块不响应 click
+                var d = el.getAttribute('data-date');
+                var m = parseFloat(el.getAttribute('data-minutes') || '0');
+                if (el.classList.contains('future')) return;
+                var html = m <= 0
+                    ? '<b>' + d + '</b><br><span style="color:#aaa">未打卡</span>'
+                    : '<b>' + d + '</b><br><span class="tt-min">' + m + ' 分钟</span>';
+                showHeatmapTooltip(e, html);
+            });
+        });
+        wrap.addEventListener('click', function(e) {
+            if (e.target.classList.contains('heatmap-cell')) return;
+            hideHeatmapTooltip();
+        }, { once: false });
+    }).catch(function(e) { wrap.innerHTML = '<div class="heatmap-loading">热力图加载失败</div>'; });
+}
+window.refreshHeatmap = refreshHeatmap;
 
 // === 退出登录 ===
 function doLogout() {
@@ -989,6 +1485,37 @@ function doLogout() {
     });
 }
 window.doLogout = doLogout;
+
+// === 主题切换(浅色 / 夜间) ===
+function applyTheme(t) {
+    if (t === 'dark' || t === 'light') {
+        document.documentElement.setAttribute('data-theme', t);
+    } else {
+        document.documentElement.removeAttribute('data-theme');
+    }
+    try { localStorage.setItem('wereadgears-theme', t || 'auto'); } catch(e) {}
+}
+function toggleTheme() {
+    var cur = document.documentElement.getAttribute('data-theme');
+    // 当前显示的是 dark 就切到 light,反之亦然
+    var isDark = cur === 'dark';
+    applyTheme(isDark ? 'light' : 'dark');
+}
+function initTheme() {
+    var saved = null;
+    try { saved = localStorage.getItem('wereadgears-theme'); } catch(e) {}
+    if (saved === 'light' || saved === 'dark') {
+        applyTheme(saved);
+    } else {
+        // 跟随系统
+        var sysDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        applyTheme(sysDark ? 'dark' : null);
+    }
+    var btn = document.getElementById('btnTheme');
+    if (btn) btn.addEventListener('click', toggleTheme);
+}
+window.toggleTheme = toggleTheme;
+window.initTheme = initTheme;
 
 // === CURL 捕获 ===
 function captureCurl() {
@@ -1009,7 +1536,7 @@ function syncTimes() { document.getElementById('scheduleTimes').value = JSON.str
 function renderTimes() {
     var c = document.getElementById('timeSlots');
     c.innerHTML = scheduleTimes.map(function(t, i) {
-        return '<div style="display:flex;gap:8px;align-items:center"><input type="time" value="' + t + '" onchange="updateTime(' + i + ',this.value)" style="width:140px;padding:8px 12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);border-radius:8px;color:#f8fafc;color-scheme:dark;font-size:.85rem"><button type="button" class="del-btn" onclick="removeTime(' + i + ')">删除</button></div>';
+        return '<div style="display:flex;gap:8px;align-items:center"><input type="time" value="' + t + '" onchange="updateTime(' + i + ',this.value)" style="width:140px;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;color:var(--text-1);color-scheme:light;font-size:.85rem"><button type="button" class="del-btn" onclick="removeTime(' + i + ')">删除</button></div>';
     }).join('');
     syncTimes();
 }
@@ -1020,7 +1547,7 @@ window.updateTime = updateTime;
 // === 书籍管理 ===
 function addBook() { books.push({name: '', book_id: '', chapters: []}); renderBooks(); }
 function removeBook(i) { books.splice(i, 1); renderBooks(); }
-function updateBook(i, f, v) { books[i][f] = v; syncBooks(); if (f === 'name' && v) searchBookByName(i, v); }
+function updateBook(i, f, v) { books[i][f] = v; syncBooks(); }
 function syncBooks() { document.getElementById('booksJson').value = JSON.stringify(books); }
 function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function renderBooks() {
@@ -1028,7 +1555,7 @@ function renderBooks() {
     if (!books.length) { c.innerHTML = '<div class="empty-state"><div class="empty-icon">&#x1F4DA;</div><div class="empty-text">暂无书籍，点击添加或从书架导入</div></div>'; syncBooks(); return; }
     c.innerHTML = books.map(function(b, bi) {
         var name = esc(b.name || ''), bid = esc(b.book_id || '');
-        return '<div class="book-item"><div class="book-header"><span class="book-title">书籍 ' + (bi + 1) + '</span><button type="button" class="ch-del-btn" onclick="removeBook(' + bi + ')" style="width:auto;padding:4px 12px;font-size:.8rem">删除</button></div><div class="form-group"><label>名称 <span id="searchHint' + bi + '" style="color:#06b6d4;font-size:.75rem;display:none">搜索中...</span></label><input type="text" value="' + name + '" onchange="updateBook(' + bi + ',\'name\',this.value)" placeholder="输入书名自动搜索ID"></div><div class="form-group"><label>书籍ID</label><input type="text" value="' + bid + '" id="bookIdInput' + bi + '" onchange="updateBook(' + bi + ',\'book_id\',this.value)"></div></div>';
+        return '<div class="book-item"><div class="book-header"><span class="book-title">书籍 ' + (bi + 1) + '</span><button type="button" class="del-btn" onclick="removeBook(' + bi + ')">删除</button></div><div class="form-group"><label>名称</label><div style="display:flex;gap:6px;align-items:center"><input type="text" value="' + name + '" onchange="updateBook(' + bi + ',\'name\',this.value)" placeholder="输入书名" style="flex:1"><button type="button" class="btn btn-secondary btn-sm" onclick="openSearchBookModal(' + bi + ')">搜索</button></div></div><div class="form-group"><label>书籍 ID</label><input type="text" value="' + bid + '" id="bookIdInput' + bi + '" onchange="updateBook(' + bi + ',\'book_id\',this.value)" placeholder="点上面搜索自动填入"></div></div>';
     }).join('');
     syncBooks();
 }
@@ -1036,62 +1563,271 @@ window.addBook = addBook;
 window.removeBook = removeBook;
 window.updateBook = updateBook;
 
-var searchTimer = null;
-function searchBookByName(i, name) {
-    if (searchTimer) clearTimeout(searchTimer);
-    var hint = document.getElementById('searchHint' + i);
-    if (hint) { hint.style.display = 'inline'; hint.textContent = '搜索中...'; }
-    searchTimer = setTimeout(function() {
-        fetch('/api/search-books?q=' + encodeURIComponent(name)).then(function(r) { return r.json(); }).then(function(d) {
-            if (d.results && d.results.length > 0) {
-                if (hint) { hint.textContent = '找到' + d.results.length + '个结果'; }
-                var inp = document.getElementById('bookIdInput' + i);
-                if (inp && !inp.value) {
-                    inp.value = d.results[0].book_id;
-                    updateBook(i, 'book_id', d.results[0].book_id);
-                }
-                var sr = document.getElementById('searchResults');
-                if (sr) {
-                    sr.innerHTML = d.results.slice(0, 5).map(function(r) {
-                        return '<div style="padding:8px 12px;background:rgba(255,255,255,.03);border-radius:8px;margin-bottom:6px;cursor:pointer;transition:background .2s" onmouseover="this.style.background=\'rgba(6,182,212,.1)\'" onmouseout="this.style.background=\'rgba(255,255,255,.03)\'" onclick="updateBook(' + i + ',\'book_id\',\'' + r.book_id + '\');document.getElementById(\'bookIdInput' + i + '\').value=\'' + r.book_id + '\';document.getElementById(\'searchResults\').innerHTML=\'\'">' +
-                        '<span style="color:#e2e8f0">' + esc(r.name) + '</span> ' +
-                        (r.author ? '<span style="color:#64748b;font-size:.85rem"> - ' + esc(r.author) + '</span>' : '') +
-                        '<span style="color:#64748b;font-size:.75rem;float:right">' + esc(r.book_id) + '</span></div>';
-                    }).join('');
-                }
-            } else {
-                if (hint) { hint.textContent = '未找到'; }
-            }
-        }).catch(function() {
-            if (hint) { hint.textContent = '搜索失败'; }
-        });
-    }, 600);
+// === 书籍搜索弹窗 ===
+// searchBookModalIndex:
+//   -1  = 弹窗关闭
+//   -2  = 全局搜索模式(点选后追加为新书)
+//   >=0 = 单本书搜索模式(点选后回填到第 i 本)
+var searchBookModalIndex = -1;
+function openSearchBookModal(i) {
+    searchBookModalIndex = i;
+    var modal = document.getElementById('searchBookModal');
+    var qEl = document.getElementById('searchBookQuery');
+    var listEl = document.getElementById('searchBookList');
+    var statusEl = document.getElementById('searchBookStatus');
+    var book = books[i] || {};
+    var name = (book.name || '').trim();
+    qEl.textContent = name ? ('为「书籍 ' + (i + 1) + '」搜索: ' + name) : ('为「书籍 ' + (i + 1) + '」搜索');
+    listEl.innerHTML = '';
+    statusEl.style.display = 'block';
+    modal.classList.add('active');
+    if (!name) {
+        statusEl.innerHTML = '请先在「名称」输入框填入书名,再点搜索';
+        return;
+    }
+    runBookSearch(name);
 }
-window.searchBookByName = searchBookByName;
+window.openSearchBookModal = openSearchBookModal;
+
+function openGlobalSearchBookModal() {
+    searchBookModalIndex = -2;
+    var modal = document.getElementById('searchBookModal');
+    var qEl = document.getElementById('searchBookQuery');
+    var listEl = document.getElementById('searchBookList');
+    var statusEl = document.getElementById('searchBookStatus');
+    var input = document.getElementById('bookSearchInput');
+    var name = (input && input.value || '').trim();
+    qEl.textContent = name ? ('搜索并加入配置: ' + name) : '搜索并加入配置';
+    listEl.innerHTML = '';
+    statusEl.style.display = 'block';
+    modal.classList.add('active');
+    if (!name) {
+        statusEl.innerHTML = '请在上方搜索框输入书名';
+        if (input) input.focus();
+        return;
+    }
+    runBookSearch(name);
+}
+window.openGlobalSearchBookModal = openGlobalSearchBookModal;
+
+function closeSearchBookModal() {
+    searchBookModalIndex = -1;
+    document.getElementById('searchBookModal').classList.remove('active');
+}
+window.closeSearchBookModal = closeSearchBookModal;
+
+// 全局搜索框的回车键 = 点搜索按钮
+document.addEventListener('DOMContentLoaded', function() {
+    var input = document.getElementById('bookSearchInput');
+    if (input) {
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                openGlobalSearchBookModal();
+            }
+        });
+    }
+});
+
+async function runBookSearch(name) {
+    var statusEl = document.getElementById('searchBookStatus');
+    var listEl = document.getElementById('searchBookList');
+    statusEl.innerHTML = '<span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:-2px;margin-right:6px;border-width:2px"></span>搜索中... (1-6 秒)';
+    listEl.innerHTML = '';
+    try {
+        var resp = await fetch('/api/search-books?q=' + encodeURIComponent(name) + '&limit=8');
+        var d = await resp.json();
+        var results = d.results || [];
+        var sourceLabel = ({api: '搜索 API', ssr: '页面 SSR', dom: 'DOM 抓取', empty: '无数据'})[d.source] || d.source || '未知';
+        if (!results.length) {
+            statusEl.innerHTML = '未找到结果 <span style="color:var(--text-3);font-size:.78rem;margin-left:6px">数据源: ' + esc(sourceLabel) + '</span>';
+            return;
+        }
+        statusEl.innerHTML = '找到 ' + results.length + ' 条结果 <span style="color:var(--text-3);font-size:.78rem;margin-left:6px">数据源: ' + esc(sourceLabel) + '</span> · 点选下方任一项';
+        listEl.innerHTML = results.map(function(r, idx) {
+            // 一行式:书名左 + ID 右(等宽字体),无提示标签
+            return '<div data-bid="' + esc(r.book_id) + '" data-name="' + esc(r.name) + '" data-author="' + esc(r.author || '') + '" ' +
+                'style="padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;transition:all 0.15s" ' +
+                'onmouseover="this.style.background=\'var(--primary-soft)\';this.style.borderColor=\'var(--primary)\'" ' +
+                'onmouseout="this.style.background=\'var(--bg-card)\';this.style.borderColor=\'var(--border)\'" ' +
+                'onclick="pickSearchResult(this)">' +
+                    '<div style="flex:1;min-width:0;color:var(--text-1);font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+                        esc(r.name) +
+                    '</div>' +
+                    '<div style="color:var(--text-3);font-size:12px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap;letter-spacing:-.2px">' +
+                        esc(r.book_id) +
+                    '</div>' +
+                '</div>';
+        }).join('');
+    } catch (e) {
+        statusEl.innerHTML = '搜索失败: ' + esc(String(e && e.message || e));
+    }
+}
+
+function pickSearchResult(el) {
+    if (searchBookModalIndex < 0) return;
+    var bid = el.getAttribute('data-bid') || '';
+    var name = el.getAttribute('data-name') || '';
+    var author = el.getAttribute('data-author') || '';
+    if (searchBookModalIndex === -2) {
+        // 全局搜索:追加为新书
+        var newBook = { name: name, book_id: bid, chapters: [] };
+        if (author) newBook.author = author;
+        books.push(newBook);
+        renderBooks();
+        showToast('已加入配置: ' + name + ' (id=' + bid + ') · 共 ' + books.length + ' 本', 'success', 3000);
+    } else {
+        var i = searchBookModalIndex;
+        if (!books[i]) { closeSearchBookModal(); return; }
+        if (!books[i].name && name) books[i].name = name;
+        books[i].book_id = bid;
+        if (author) books[i].author = author;
+        renderBooks();
+        showToast('已填入书籍 ' + (i + 1) + ': ' + name + ' (id=' + bid + ')', 'success', 2500);
+    }
+    closeSearchBookModal();
+}
+window.pickSearchResult = pickSearchResult;
+window.runBookSearch = runBookSearch;
+
+// === 书架导入 - 多选 + 搜索 ===
+var shelfImportData = [];  // 完整书架数据
+var shelfImportSelected = {};  // bid -> bool
 
 async function importShelf() {
     var btn = event.target;
     var orig = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;margin:0;border-width:2px"></span> 导入中...';
+    btn.disabled = true; btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;margin:0;border-width:2px"></span> 加载中...';
     try {
         var r = await fetch('/api/shelf-books'); var d = await r.json();
+        if (d.error === 'not_logged_in') {
+            showToast('未登录,请先在右上角扫码登录', 'error');
+            return;
+        }
         if (!d.books || !d.books.length) { showToast('书架为空或获取失败', 'error'); return; }
+        shelfImportData = d.books;
+        // 默认勾选:还没在 books 配置里的
+        shelfImportSelected = {};
         var existing = {};
         books.forEach(function(b) { if (b.book_id) existing[b.book_id] = true; });
-        var added = 0;
-        d.books.forEach(function(b) {
-            if (!existing[b.book_id]) {
-                books.push({name: b.name || '', book_id: b.book_id || '', chapters: []});
-                existing[b.book_id] = true;
-                added++;
+        shelfImportData.forEach(function(b) {
+            if (b.book_id && !existing[b.book_id]) {
+                shelfImportSelected[b.book_id] = true;
             }
         });
-        renderBooks();
-        showToast('导入 ' + added + ' 本新书', 'success');
+        openShelfImportModal();
     } catch(e) { showToast('导入失败: ' + e, 'error'); }
     finally { btn.disabled = false; btn.innerHTML = orig; }
 }
 window.importShelf = importShelf;
+
+function openShelfImportModal() {
+    document.getElementById('shelfImportHint').textContent = '共 ' + shelfImportData.length + ' 本,已默认勾选未在配置里的';
+    document.getElementById('shelfImportSearch').value = '';
+    renderShelfImportList('');
+    document.getElementById('shelfImportModal').classList.add('active');
+    setTimeout(function() { document.getElementById('shelfImportSearch').focus(); }, 100);
+}
+window.openShelfImportModal = openShelfImportModal;
+
+function closeShelfImportModal() {
+    document.getElementById('shelfImportModal').classList.remove('active');
+}
+window.closeShelfImportModal = closeShelfImportModal;
+
+function renderShelfImportList(filter) {
+    filter = (filter || '').toLowerCase().trim();
+    var listEl = document.getElementById('shelfImportList');
+    var filtered = shelfImportData.filter(function(b) {
+        if (!filter) return true;
+        return (b.name && b.name.toLowerCase().indexOf(filter) >= 0)
+            || (b.author && b.author.toLowerCase().indexOf(filter) >= 0)
+            || (b.book_id && b.book_id.toLowerCase().indexOf(filter) >= 0);
+    });
+    if (!filtered.length) {
+        listEl.innerHTML = '<div style="color:var(--text-3);text-align:center;padding:24px">没有匹配的书</div>';
+        updateShelfImportCount();
+        return;
+    }
+    listEl.innerHTML = filtered.map(function(b) {
+        var checked = shelfImportSelected[b.book_id] ? 'checked' : '';
+        var already = books.some(function(x) { return x.book_id === b.book_id; });
+        var tag = already ? '<span style="color:var(--warning);font-size:.7rem;margin-left:6px">已在配置</span>' : '';
+        var idShort = b.book_id ? b.book_id.slice(0, 12) : '';
+        return '<label data-bid="' + esc(b.book_id) + '" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:all .15s" onmouseover="this.style.background=\'rgba(99,102,241,.08)\'" onmouseout="this.style.background=\'rgba(255,255,255,.03)\'">' +
+            '<input type="checkbox" data-bid="' + esc(b.book_id) + '" ' + checked + ' onchange="onShelfItemToggle(this)" style="width:18px;height:18px;cursor:pointer;flex-shrink:0">' +
+            '<div style="flex:1;min-width:0">' +
+                '<div style="color:var(--text-1);font-weight:500">' + esc(b.name || '(无名)') + tag + '</div>' +
+                (b.author ? '<div style="color:var(--text-3);font-size:.82rem;margin-top:2px">' + esc(b.author) + '</div>' : '') +
+            '</div>' +
+            '<div style="color:var(--primary);font-size:.72rem;font-family:monospace;flex-shrink:0">' + esc(idShort) + '</div>' +
+        '</label>';
+    }).join('');
+    updateShelfImportCount();
+}
+
+function onShelfItemToggle(cb) {
+    var bid = cb.getAttribute('data-bid');
+    if (cb.checked) shelfImportSelected[bid] = true;
+    else delete shelfImportSelected[bid];
+    updateShelfImportCount();
+}
+window.onShelfItemToggle = onShelfItemToggle;
+
+function updateShelfImportCount() {
+    var total = document.querySelectorAll('#shelfImportList input[type=checkbox]').length;
+    var checked = Object.keys(shelfImportSelected).length;
+    document.getElementById('shelfImportCount').textContent = '已选 ' + checked + '/' + total;
+}
+
+function shelfImportSelectAll(selectAll) {
+    document.querySelectorAll('#shelfImportList input[type=checkbox]').forEach(function(cb) {
+        cb.checked = selectAll;
+        var bid = cb.getAttribute('data-bid');
+        if (selectAll) shelfImportSelected[bid] = true; else delete shelfImportSelected[bid];
+    });
+    updateShelfImportCount();
+}
+window.shelfImportSelectAll = shelfImportSelectAll;
+
+function shelfImportSelectInvert() {
+    document.querySelectorAll('#shelfImportList input[type=checkbox]').forEach(function(cb) {
+        cb.checked = !cb.checked;
+        var bid = cb.getAttribute('data-bid');
+        if (cb.checked) shelfImportSelected[bid] = true; else delete shelfImportSelected[bid];
+    });
+    updateShelfImportCount();
+}
+window.shelfImportSelectInvert = shelfImportSelectInvert;
+
+function confirmShelfImport() {
+    var bids = Object.keys(shelfImportSelected);
+    if (!bids.length) { showToast('没选任何书', 'info'); return; }
+    var existing = {};
+    books.forEach(function(b) { if (b.book_id) existing[b.book_id] = true; });
+    var added = 0, dupes = 0;
+    bids.forEach(function(bid) {
+        if (existing[bid]) { dupes++; return; }
+        var b = shelfImportData.find(function(x) { return x.book_id === bid; });
+        if (b) {
+            books.push({name: b.name || '', book_id: b.book_id, chapters: []});
+            existing[bid] = true;
+            added++;
+        }
+    });
+    renderBooks();
+    closeShelfImportModal();
+    var msg = '导入 ' + added + ' 本';
+    if (dupes) msg += ' (跳过 ' + dupes + ' 本已存在)';
+    showToast(msg, 'success');
+}
+window.confirmShelfImport = confirmShelfImport;
+
+// 绑定搜索框输入
+document.addEventListener('DOMContentLoaded', function() {
+    var s = document.getElementById('shelfImportSearch');
+    if (s) s.addEventListener('input', function() { renderShelfImportList(this.value); });
+});
 
 // === 添加用户 ===
 function showAddUser() {
@@ -1116,6 +1852,20 @@ function init() {
     if (!scheduleTimes.length) { addTime('09:00'); addTime('12:00'); addTime('18:00'); }
     refreshProgress();
     updateLoginButtons();
+    refreshWeeklyStatus();
+    refreshStatistics();
+    refreshHeatmap();
+    // 轮询 cookie 健康(30s 一次),失效时显示顶部红色横幅
+    checkCookieHealth();
+    setInterval(checkCookieHealth, 30000);
+    // 每周奖励状态轮询(60s 一次)
+    setInterval(refreshWeeklyStatus, 60000);
+    // 阅读统计 + 热力图轮询(60s 一次)
+    setInterval(refreshStatistics, 60000);
+    setInterval(refreshHeatmap, 60000);
+    // 监听 weeklyRewardToggle 关闭时刷新状态
+    var wToggle = document.getElementById('weeklyRewardToggle');
+    if (wToggle) wToggle.addEventListener('change', refreshWeeklyStatus);
 }
 
 function updateLoginButtons() {
@@ -1173,6 +1923,8 @@ document.getElementById('configForm').addEventListener('submit', async function(
         notification_enabled: fd.has('notification_enabled'),
         notification_only_on_failure: fd.get('notification_only_on_failure') === 'true',
         weekly_reward_reminder: fd.has('weekly_reward_reminder'),
+        weekly_reward_day: parseInt(fd.get('weekly_reward_day') || 6),
+        weekly_reward_time: fd.get('weekly_reward_time') || '10:00',
         // 国内推送
         bark_enabled: fd.has('bark_enabled'),
         bark_server: fd.get('bark_server'),
@@ -1220,6 +1972,9 @@ document.getElementById('configForm').addEventListener('submit', async function(
 
 if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', init); }
 else { init(); }
+
+// 主题初始化(早跑,避免页面闪烁)
+initTheme();
 
 })();
 </script>

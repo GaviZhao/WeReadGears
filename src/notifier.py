@@ -51,7 +51,18 @@ class BarkChannel(NotificationChannel):
                 params["sound"] = self.sound
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(url, params=params)
-                return response.status_code == 200
+                # Bark 服务可能返 200 但 body 含 error 字段(比如 device_key 错/被限流)
+                if response.status_code == 200:
+                    try:
+                        body = response.json()
+                        if isinstance(body, dict) and body.get("code") not in (None, 200, 0):
+                            logger.warning(f"Bark 通知 200 但 code={body.get('code')},message={body.get('message','')}")
+                            return False
+                    except Exception:
+                        pass
+                    return True
+                logger.warning(f"Bark 通知失败: HTTP {response.status_code} body={response.text[:200]}")
+                return False
         except Exception as e:
             logger.error(f"Bark通知失败: {e}")
             return False
@@ -391,14 +402,16 @@ class Notifier:
 
     async def send(self, message: str, notif_type: NotificationType = NotificationType.GENERAL, **kwargs) -> bool:
         if not self._should_notify(notif_type):
+            logger.debug(f"通知类型 {notif_type.value} 被模式过滤(可能仅失败时通知或未启用),跳过")
             return True
 
         if not self.channels:
-            logger.debug("未配置通知通道")
+            logger.warning(f"未配置任何通知通道,无法发送 {notif_type.value}: {message[:80]}")
             return False
 
         title = self._get_title(notif_type)
         body = self._format_body(message, notif_type, **kwargs)
+        logger.info(f"[通知] type={notif_type.value} title={title!r} 通道数={len(self.channels)} body_len={len(body)}")
 
         results = await asyncio.gather(
             *[channel.send(title, body) for channel in self.channels],
@@ -407,14 +420,32 @@ class Notifier:
 
         success_count = sum(1 for r in results if r is True)
         if success_count > 0:
-            logger.info(f"通知发送成功: {title} (成功: {success_count}/{len(self.channels)})")
+            logger.info(f"通知发送成功: {title!r} (成功: {success_count}/{len(self.channels)} 通道)")
             return True
         else:
-            logger.error(f"所有通知通道发送失败")
+            logger.error(f"所有通知通道发送失败: {title!r}")
+            for i, r in enumerate(results):
+                if r is False:
+                    logger.error(f"  通道 #{i} 失败")
+                elif isinstance(r, Exception):
+                    logger.error(f"  通道 #{i} 异常: {r}")
             return False
 
     def _get_title(self, notif_type: NotificationType) -> str:
-        return "微信读书自动阅读"
+        title_map = {
+            NotificationType.WEEKLY_REWARD: "微信读书 · 周奖励待领",
+            NotificationType.READING_COMPLETE: "微信读书 · 阅读完成",
+            NotificationType.READING_START: "微信读书 · 阅读开始",
+            NotificationType.READING_INTERRUPTED: "微信读书 · 阅读中断",
+            NotificationType.READING_FAILED: "微信读书 · 阅读失败",
+            NotificationType.LOGIN_SUCCESS: "微信读书 · 登录成功",
+            NotificationType.LOGIN_FAILED: "微信读书 · 登录失败",
+            NotificationType.COOKIES_EXPIRED: "微信读书 · Cookie 失效",
+            NotificationType.STARTUP: "WeReadGears · 启动",
+            NotificationType.RUNTIME_ERROR: "WeReadGears · 错误",
+            NotificationType.CONTAINER_EXIT: "WeReadGears · 容器退出",
+        }
+        return title_map.get(notif_type, "微信读书自动阅读")
 
     def _format_body(self, message: str, notif_type: NotificationType, **kwargs) -> str:
         return message
@@ -473,8 +504,30 @@ class Notifier:
         await self.send(f"运行时错误: {error}", NotificationType.RUNTIME_ERROR)
 
     async def notify_weekly_reward(self):
+        """每周奖励提醒 — 强调标题+分步操作指引"""
+        from src.config import config
+        from src.scheduler import scheduler
+        # 动态拉当前配置的"下次触发时间",让用户感知到调度是真的 work
+        next_run_text = ""
+        try:
+            st = scheduler.get_weekly_status()
+            if st.get("next_run"):
+                next_run_text = f"\n下次提醒: {st['next_run']}"
+        except Exception:
+            pass
+        body = (
+            "本周阅读时长已累计,记得去微信读书 App 领取周奖励!\n"
+            "\n"
+            "领取步骤:\n"
+            "1. 打开「微信读书」App 或访问 web 端\n"
+            "2. 进入「我」→「福利中心」或「周奖励」入口\n"
+            "3. 领取本周阅读时长兑换的书币/书券\n"
+            "\n"
+            "提示:周奖励通常在每周日 23:59 截止,过期会损失奖励哦"
+            f"{next_run_text}"
+        )
         await self.send(
-            "📚 本周阅读已累计，别忘了去微信读书领取本周阅读奖励哦！\n每周奖励和排名奖励都可在微信读书 App 中查看领取。",
+            body,
             NotificationType.WEEKLY_REWARD
         )
 

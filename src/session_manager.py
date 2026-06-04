@@ -202,7 +202,16 @@ class SessionManager:
 
     async def _run_single_user(self) -> SessionResult:
         """运行单用户会话（使用默认 reading 配置）"""
-        return await UserSession({"name": "default"}).execute(self._progress_callback)
+        # 自动找第一个有有效凭证的用户(Web UI 登录态可能挂在 Gavi,API 模式却去找 default)
+        from src.cookie_manager import cookie_manager
+        from src.credential_manager import credential_manager
+        user_name = "default"
+        for candidate in cookie_manager.get_all_valid_users():
+            if credential_manager.is_valid(candidate):
+                user_name = candidate
+                logger.info(f"单用户模式: 使用凭证 {user_name} (default 不可用)")
+                break
+        return await UserSession({"name": user_name}).execute(self._progress_callback)
 
     async def _send_summary_notification(self, results: List[SessionResult]):
         """发送多用户汇总通知"""
