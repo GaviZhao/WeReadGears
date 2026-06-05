@@ -26,6 +26,11 @@
 - **书籍配置**：支持指定书籍和章节
 - **人类行为模拟**：随机滚动、休息间隔、书籍切换
 
+## 演示截图
+
+<img width="1396" height="1304" alt="image" src="https://github.com/user-attachments/assets/1d8318be-a70e-49ab-b62c-9b5930408211" />
+<img width="1396" height="1304" alt="image" src="https://github.com/user-attachments/assets/a97bb953-147a-4a7b-83e4-681db2971df2" />
+
 ## 快速开始（Docker Compose 部署）
 
 只需 3 步即可跑起来。
