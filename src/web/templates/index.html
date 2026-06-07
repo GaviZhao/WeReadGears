@@ -36,8 +36,12 @@
             --warning-soft: #fff3e0;
             --danger: #f53f3f;
             --danger-soft: #ffeced;
-            /* 热力图配色(浅色:GitHub 经典绿) */
-            --hm-empty: #ebedf0;
+        /* 日志终端配色(浅色版) */
+        --log-bg: #f5f6f7;
+        --log-color: #1f2329;
+        --log-line: #c9cdd4;
+        /* 热力图配色(浅色:GitHub 经典绿) */
+        --hm-empty: #ebedf0;
             --hm-l1: #9be9a8;
             --hm-l2: #40c463;
             --hm-l3: #30a14e;
@@ -69,6 +73,10 @@
             --warning-soft: #3a2812;
             --danger: #f55b5b;
             --danger-soft: #3a1818;
+            /* 日志终端配色(夜间版) */
+            --log-bg: #0d1117;
+            --log-color: #c9cdd4;
+            --log-line: #2a2f3a;
             /* 热力图配色(夜间:GitHub 暗色绿) */
             --hm-empty: #1e2128;
             --hm-l1: #033a16;
@@ -92,7 +100,7 @@
         a { color: var(--primary); text-decoration: none; }
         a:hover { text-decoration: underline; }
         .container { max-width: 1320px; margin: 0 auto; padding: 24px 20px; }
-        .header { background: var(--bg-card); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+        .header { position: sticky; top: 0; z-index: 100; background: var(--bg-card); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; box-shadow: 0 1px 0 var(--border); }
         .header-left { display: flex; align-items: center; gap: 10px; }
         .logo { width: 28px; height: 28px; background: var(--primary); color: #fff; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; }
         .header h1 { font-size: 17px; font-weight: 600; color: var(--text-1); margin: 0; }
@@ -170,7 +178,7 @@
         .save-btn { padding: 10px 36px; background: var(--primary); color: #fff; border: none; border-radius: var(--radius); font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.15s; }
         .save-btn:hover:not(:disabled) { background: var(--primary-hover); }
         .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .preview-wrap { position: relative; overflow: hidden; border-radius: var(--radius); background: #f0f1f4; aspect-ratio: 16/10; border: 1px solid var(--border); user-select: none; }
+        .preview-wrap { position: relative; overflow: hidden; border-radius: var(--radius); background: var(--bg-soft); aspect-ratio: 16/10; border: 1px solid var(--border); user-select: none; }
         .preview-wrap img { display: block; width: 100%; height: 100%; object-fit: contain; transform-origin: 0 0; pointer-events: auto; }
         .preview-controls { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
         .preview-controls .zoom-level { color: var(--text-3); font-size: 12px; min-width: 40px; text-align: center; }
@@ -410,7 +418,7 @@
                             <span id="progressEndTime"></span>
                         </div>
                     </div>
-                    <div id="logConsole" style="background:#1f2329;border:1px solid var(--border);border-radius:var(--radius);padding:10px;max-height:200px;overflow-y:auto;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.6;color:#c9cdd4">
+                    <div id="logConsole" style="background:var(--log-bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px;max-height:200px;overflow-y:auto;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.6;color:var(--log-color)">
                         <div style="color:var(--text-3)">等待日志...</div>
                     </div>
                 </div>
