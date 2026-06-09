@@ -3,6 +3,7 @@ import json
 import random
 import time
 import hashlib
+import re
 import urllib.parse
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -16,6 +17,17 @@ from src.http_client import http_client, HttpClient
 
 
 KEY = "3c5c8717f3daf09iop3423zafeqoi"
+
+# 腾讯微信读书 read API 在新版协议下必填的字段(任何缺一都会被拒)
+REQUIRED_PAYLOAD_KEYS = ("b", "c", "r", "st", "ct", "ps", "pc", "sc", "s")
+# curl 命令前缀/分隔符,用于检测 header 是不是被串进了 curl 残片
+_CURL_TAIL_PATTERNS = (
+    re.compile(r"'\s*--data-raw\s*'"),
+    re.compile(r"'\s*--data\s*'"),
+    re.compile(r"\s--data-raw\s*'"),
+    re.compile(r"\s-H\s+'"),
+    re.compile(r"\s--compressed\b"),
+)
 
 
 @dataclass
@@ -123,38 +135,90 @@ class ApiReader:
             logger.warning(f"保存阅读进度失败: {e}")
 
     def _init_from_credentials(self):
-        """从凭证初始化请求数据和cookie/header"""
+        """从凭证初始化请求数据和cookie/header
+        关键修复:
+          1) 清洗 header:检测到 header 字符串里被串入 curl 残片(如 `' --data-raw '`)
+             时,只保留 curl 残片之前的部分。
+          2) 保留 captured_payload 里 b/c/r/st/sc/ct 全部字段,而不仅是 ps/pc。
+          3) cookies 缺字段时,回退到 credentials 上的 wr_skey/wr_vid。
+        """
         ui = self.credentials.user_info or {}
         cp = ui.get("captured_payload", {}) or {}
+        # 1) payload:完整保留 b/c/r/st/ct/ps/pc/sc,只丢 s(下面重算)
         if cp and isinstance(cp, dict):
-            self.data = dict(cp)
-            self.data.pop("s", None)
+            self.data = {k: v for k, v in cp.items() if k in REQUIRED_PAYLOAD_KEYS and k != "s"}
         else:
             self.data = {}
+        # 兜底:如果 captured_payload 里 b/c/ps/pc 缺失,用进度文件 + credentials 补
+        if not self.data.get("ps"):
+            self.data["ps"] = ui.get("ps") or (self.credentials.user_id or self.credentials.wr_vid or "")
+        if not self.data.get("pc"):
+            self.data["pc"] = ui.get("pc") or (self.credentials.user_id or self.credentials.wr_vid or "")
+        if not self.data.get("b") and self.last_book_id:
+            self.data["b"] = self.last_book_id
+        if not self.data.get("c") and self.last_chapter_id:
+            self.data["c"] = self.last_chapter_id
+        # 兜底 r/st/sc:首次请求没有,初始化为合理值
+        self.data.setdefault("r", 0)
+        self.data.setdefault("st", 0)
+        self.data.setdefault("sc", 0)
+
+        # 2) cookies
         cc = ui.get("captured_cookies", {}) or {}
         if cc and isinstance(cc, dict):
             self.cookies = dict(cc)
         else:
             self.cookies = {"wr_skey": self.credentials.wr_skey, "wr_vid": self.credentials.wr_vid}
+        # 始终确保 wr_skey / wr_vid 在 cookies 里(可能 captured_cookies 缺)
+        if not self.cookies.get("wr_skey"):
+            self.cookies["wr_skey"] = self.credentials.wr_skey
+        if not self.cookies.get("wr_vid"):
+            self.cookies["wr_vid"] = self.credentials.wr_vid
+
+        # 3) headers:清洗 curl 残片 + ASCII-only + 过滤敏感字段
         ch = ui.get("captured_headers", {}) or {}
         if ch and isinstance(ch, dict):
             self.headers = dict(self.DEFAULT_HEADERS)
             for k, v in ch.items():
                 kl = k.lower()
-                k_space = " " in k or "//" in k or "{" in k or "--" in k
-                if k_space or kl in ("https", "cookie", "host", "content-length", "connection", "baggage", "sentry"):
+                # header 名字里出现 curl 串行/换行/template,丢弃
+                if any(c in k for c in (" ", "//", "{", "--", "\n", "\r")):
                     continue
-                if kl.startswith("sec-"):
+                if kl in ("host", "content-length", "connection", "baggage", "sentry", "sentry-trace", "cookie"):
                     continue
-                try:
-                    k.encode("ascii")
-                except UnicodeEncodeError:
+                if kl.startswith("sec-") or kl == "x-wrpa-0":
                     continue
-                safe_v = "".join(c for c in str(v) if ord(c) < 128)
+                if not k.isascii():
+                    continue
+                safe_v = self._sanitize_header_value(str(v))
                 if safe_v:
                     self.headers[k] = safe_v
         else:
             self.headers = dict(self.DEFAULT_HEADERS)
+
+    @staticmethod
+    def _sanitize_header_value(v: str) -> str:
+        """清洗 header 值:截掉被串入的 curl 残片 + 去掉非 ASCII + 去除首尾空白"""
+        if v is None:
+            return ""
+        s = str(v)
+        # 截掉 curl 残片:从第一个 `'` 后面跟着 `--data-raw` / `--data` / `-H` / `--compressed` 起始
+        for pat in _CURL_TAIL_PATTERNS:
+            m = pat.search(s)
+            if m:
+                s = s[: m.start()].rstrip()
+                break
+        # 同样地,如果字符串里出现 `'` (curl 单引号)且后面跟 JSON 数据,截掉
+        if "'" in s:
+            # 找最早的 `'` 后面接 `{` 的位置
+            m = re.search(r"'\s*\{", s)
+            if m:
+                s = s[: m.start()].rstrip()
+        # 去除尾部单引号
+        s = s.rstrip("'").rstrip()
+        # ASCII-only
+        s = "".join(c for c in s if ord(c) < 128)
+        return s.strip()
 
     def _init_http_client(self):
         network_config = config.get("network", {})
@@ -185,39 +249,75 @@ class ApiReader:
         return hex(_7032f5 + _cc1055)[2:].lower()
 
     def _apply_user_identity(self):
-        """重新注入ps/pc/appId（同 weread-bot _apply_user_identity_to_payload）"""
+        """重新注入 ps/pc(腾讯新版协议只认 ps/pc,不再用 appId)"""
         ui = self.credentials.user_info or {}
         cp = ui.get("captured_payload", {}) or {}
         if cp.get("ps"):
             self.data["ps"] = cp["ps"]
         if cp.get("pc"):
             self.data["pc"] = cp["pc"]
-        if cp.get("appId"):
-            self.data["appId"] = cp["appId"]
+        # 兜底:确保 ps/pc 永远非空
+        if not self.data.get("ps"):
+            self.data["ps"] = self.credentials.user_id or self.credentials.wr_vid or ""
+        if not self.data.get("pc"):
+            self.data["pc"] = self.credentials.user_id or self.credentials.wr_vid or ""
 
     def _prepare_payload(self, last_time: int):
-        """准备单次阅读请求的payload（同 weread-bot _prepare_read_payload）"""
+        """准备单次阅读请求的 payload
+        关键修复:
+          - 不再无条件 pop `appId/sg/ci/co`(虽然不再用,但 pop 错位会污染 _init_from_credentials)
+          - 每次都强制刷新 r/st/sc/ct/s(腾讯新版 read API 必填)
+          - 保留 captured_payload 里捕获的 r/st/sc(如果存在),保持请求体与真实浏览器一致
+        """
+        # 移除上一轮的签名(必须重算)
         self.data.pop("s", None)
+        self.data.pop("sg", None)
 
+        # 同步进度:书/章节
         if self.last_book_id:
             self.data["b"] = self.last_book_id
         if self.last_chapter_id:
             self.data["c"] = self.last_chapter_id
-        if self.last_chapter_index is not None:
-            self.data["ci"] = self.last_chapter_index
 
+        # 注入用户身份(ps/pc)
         self._apply_user_identity()
 
+        # 注入 captured 里的 r/st/sc(如有)
+        ui = self.credentials.user_info or {}
+        cp = ui.get("captured_payload", {}) or {}
+        for k in ("r", "st", "sc"):
+            v = cp.get(k)
+            if v is not None and (k not in self.data or self.data.get(k) in (None, 0, "")):
+                self.data[k] = v
+
+        # r/st/sc 兜底(首次或 captured 缺失)
+        if "r" not in self.data or self.data.get("r") in (None,):
+            self.data["r"] = random.randint(10000000, 99999999)
+        if "st" not in self.data or self.data.get("st") is None:
+            self.data["st"] = 0
+        if "sc" not in self.data or self.data.get("sc") is None:
+            self.data["sc"] = 0
+
+        # 实时字段
         current_time = int(time.time())
         self.data["ct"] = current_time
-        self.data["rt"] = current_time - last_time
-        self.data["ts"] = int(current_time * 1000) + random.randint(0, 1000)
-        self.data["rn"] = random.randint(0, 1000)
-        self.data["sg"] = hashlib.sha256(f"{self.data['ts']}{self.data['rn']}{KEY}".encode()).hexdigest()
+        # 旧版用 rt,新版不一定用,但写了也不冲突(腾讯会忽略多余字段)
+        self.data["rt"] = max(0, current_time - last_time)
+
+        # 计算签名 s
         self.data["s"] = self._calculate_hash(self._encode_data(self.data))
 
+        # 防御性检查:必填字段缺失就 abort(让 _check_response 走失败路径)
+        missing = [k for k in REQUIRED_PAYLOAD_KEYS if k not in self.data or self.data.get(k) in (None, "")]
+        if missing:
+            logger.warning(f"Payload 缺关键字段: {missing} (b={self.data.get('b','')[:12]})")
+
     async def _refresh_cookie(self) -> bool:
-        """刷新cookie（同 weread-bot _refresh_cookie）"""
+        """刷新cookie（同 weread-bot _refresh_cookie）
+        关键修复:
+          - 成功后回写 default.json 的 wr_skey(避免磁盘/内存长期分裂)
+          - 失败时不抛异常,返回 False 让调用方走 fallback
+        """
         logger.info("刷新cookie...")
         try:
             cookie_data = {"rq": "%2Fweb%2Fbook%2Fread", "ql": config.get("hack.cookie_refresh_ql", False)}
@@ -229,14 +329,38 @@ class ApiReader:
             )
             new_skey = self._extract_skey(response)
             if not new_skey:
-                logger.warning("Cookie刷新失败：未找到新wr_skey")
+                logger.warning("Cookie刷新失败:未找到新wr_skey")
                 return False
+            old_skey = self.cookies.get("wr_skey", "")
             self.cookies["wr_skey"] = new_skey
-            logger.info(f"Cookie刷新成功: {new_skey[:8]}***")
+            # 同步到内存 credentials(避免下次任务重新读盘)
+            if self.credentials:
+                self.credentials.wr_skey = new_skey
+            logger.info(f"Cookie刷新成功: {old_skey[:8] if old_skey else 'N/A'}*** -> {new_skey[:8]}***")
+            # 持久化回写(异步非阻塞,失败不抛)
+            await self._persist_wr_skey(new_skey)
             return True
         except Exception as e:
             logger.warning(f"Cookie刷新请求异常: {e}")
             return False
+
+    async def _persist_wr_skey(self, new_skey: str) -> None:
+        """把新 wr_skey 写回 default.json(用 user_data_manager,不直接动文件)"""
+        try:
+            from src.credential_manager import credential_manager
+            if not self.credentials or not self.credentials.user_name:
+                return
+            self.credentials.wr_skey = new_skey
+            # 更新 user_info 里的 captured_cookies(内存也用同一个引用)
+            ui = self.credentials.user_info or {}
+            cc = ui.get("captured_cookies", {}) or {}
+            if isinstance(cc, dict):
+                cc["wr_skey"] = new_skey
+                ui["captured_cookies"] = cc
+            credential_manager.save(self.credentials)
+            logger.debug(f"wr_skey 已回写 default.json (user={self.credentials.user_name})")
+        except Exception as e:
+            logger.warning(f"回写 wr_skey 失败(非致命): {e}")
 
     @staticmethod
     def _extract_skey(response: httpx.Response) -> Optional[str]:
@@ -276,9 +400,6 @@ class ApiReader:
 
         # 新版 API:succ=1 就行
         if data.get("succ") == 1:
-            # 顺手保存 synckey(如果有),供 _fix_no_synckey 用
-            if "synckey" in data and hasattr(self, '_last_synckey'):
-                self._last_synckey = data["synckey"]
             return True
 
         if "succ" in data:
@@ -306,6 +427,25 @@ class ApiReader:
         if self.is_reading:
             logger.warning("已在阅读中，跳过")
             return ReadingResult(status="already_reading")
+
+        # 延迟 import browser_manager(避免循环引用),且不依赖名字查找
+        try:
+            from src.browser import browser_manager as _bm
+            self._browser_manager = _bm
+        except Exception as _e:
+            logger.debug(f"browser_manager 不可用(将在 fallback 路径忽略): {_e}")
+            self._browser_manager = None
+
+        def _mark_relogin(reason: str):
+            """标记需要重新登录(安全调用)"""
+            bm = self._browser_manager
+            if bm is None:
+                return
+            try:
+                bm._needs_relogin = True
+                bm._relogin_reason = reason
+            except Exception as e:
+                logger.debug(f"标记重新登录失败(非致命): {e}")
 
         self.is_reading = True
         self.should_stop = False
@@ -363,43 +503,13 @@ class ApiReader:
         self.last_chapter_index = chapter_index
         logger.info(f"初始选择书籍: {self.last_book_name or self.last_book_id}")
 
-        # 如果 captured_payload 不全(没 ps/pc/appId),从 last_captured / captured_payload 补
-        # 优先从 last_captured 拿(API 拦截的最新值)
-        app_id = ""
-        ps_val = self.data.get("ps", "")
-        pc_val = self.data.get("pc", "")
-        if hasattr(self, 'last_captured') and self.last_captured:
-            app_id = self.last_captured.get("appId", "") or app_id
-            ps_val = self.last_captured.get("ps", "") or ps_val
-            pc_val = self.last_captured.get("pc", "") or pc_val
-        # 再从 credentials.user_info.captured_payload 拿
-        ui = self.credentials.user_info if self.credentials else {}
-        cap = ui.get("captured_payload", {}) if isinstance(ui, dict) else {}
-        app_id = cap.get("appId", "") or app_id
-        ps_val = cap.get("ps", "") or ps_val
-        pc_val = cap.get("pc", "") or pc_val
-        # 最后 fallback
-        app_id = app_id or "wb115321887466h953405538"
-        ps_val = ps_val or (self.credentials.user_id or self.credentials.wr_vid or "")
-        pc_val = pc_val or (self.credentials.user_id or self.credentials.wr_vid or "")
-        # 合并到 self.data(不动 appId 的 fallback 值,后面会被 pop 掉)
-        self.data.update({
-            "appId": app_id,
-            "ps": ps_val,
-            "pc": pc_val,
-        })
-
-        # 腾讯 API 改版后字段是 b/c/r/st/ct/ps/pc/sc/s(不再需要 appId/sg/ci/co)
-        # 无条件移除老版字段
-        for k in ("appId", "sg", "ts", "rn", "rt", "ci", "co"):
-            self.data.pop(k, None)
-        # 从 last_captured 拿 r/st/sc(新字段)
-        cap2 = (self.credentials.user_info or {}).get("captured_payload", {}) if self.credentials else {}
-        if hasattr(self, 'last_captured') and self.last_captured:
-            cap2 = self.last_captured
-        for k in ("r", "st", "sc"):
-            if k in cap2 and not self.data.get(k):
-                self.data[k] = cap2[k]
+        # 注:_init_from_credentials 已经把 b/c/r/st/sc/ct/ps/pc 填好;
+        # _apply_user_identity 和 _prepare_payload 会再校验/补一次。
+        # 这里只确保 b/c 跟着进度走(如果配置/捕获都没给)
+        if self.last_book_id and not self.data.get("b"):
+            self.data["b"] = self.last_book_id
+        if self.last_chapter_id and not self.data.get("c"):
+            self.data["c"] = self.last_chapter_id
 
         _logged_first = False
         last_time = int(time.time()) - 30
@@ -447,9 +557,7 @@ class ApiReader:
                             self.failed_reads += 1
                             self.should_stop = True
                             logger.warning(f"API 硬性错误,立即停止: {self._fail_reason}")
-                            if hasattr(browser_manager, '_needs_relogin'):
-                                browser_manager._needs_relogin = True
-                                browser_manager._relogin_reason = "登录已失效,需要在右上角扫码重新登录"
+                            _mark_relogin("登录已失效,需要在右上角扫码重新登录")
                             break
                         # 检查是否需要先 refresh cookie 重试一次
                         did_retry = False
@@ -482,9 +590,7 @@ class ApiReader:
                                 self._fail_reason = "cookie_refresh_failed: wr_skey 失效,请重新扫码登录"
                                 self.should_stop = True
                                 # 标记前端需要重新登录(Web UI 显示提示横幅)
-                                if hasattr(browser_manager, '_needs_relogin'):
-                                    browser_manager._needs_relogin = True
-                                    browser_manager._relogin_reason = "wr_skey 失效,请在右上角扫码重新登录"
+                                _mark_relogin("wr_skey 失效,请在右上角扫码重新登录")
                                 break
                         if not did_retry:
                             self.failed_reads += 1
@@ -605,7 +711,8 @@ class ApiReader:
     def _select_book_and_chapter(self) -> tuple:
         books = config.get("reading.books", [])
         if not books:
-            return self.last_book_id or "", self.last_chapter_id or "", self.last_chapter_index, "", ""
+            # 没有配置:用上次的进度
+            return self.last_book_id or "", self.last_chapter_id or "", self.last_chapter_index, self.last_book_name or "", ""
         book = random.choice(books)
         book_id = book.get("book_id", "")
         book_name = book.get("name", "")
@@ -621,6 +728,21 @@ class ApiReader:
                 chapter_name = ch.get("name", "") or ""
             else:
                 chapter_id = str(ch)
+        else:
+            # 关键修复:chapters 为空时,不要让 chapter_id 也跟着空 —
+            # 至少用 captured_payload 里的 c 字段(curl 抓包时已经记录了真实章节 ID)
+            ui = self.credentials.user_info or {} if self.credentials else {}
+            cp = ui.get("captured_payload", {}) or {}
+            captured_c = cp.get("c", "")
+            captured_b = cp.get("b", "")
+            if captured_c and (not book_id or captured_b == book_id):
+                chapter_id = captured_c
+                logger.debug(f"chapters 为空,使用 captured_payload.c = {chapter_id[:16]}")
+            elif self.last_chapter_id and self.last_book_id == book_id:
+                # 进度文件里有同一本书的章节,继续上次
+                chapter_id = self.last_chapter_id
+                chapter_index = self.last_chapter_index
+                logger.debug(f"chapters 为空,使用 reading_progress 的 last_chapter_id = {chapter_id[:16]}")
         return book_id, chapter_id, chapter_index, book_name, chapter_name
 
     async def stop_reading(self):
