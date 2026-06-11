@@ -1,5 +1,6 @@
 import sys
 import base64
+import io
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -136,16 +137,27 @@ async def index(request: Request):
     history_config = config.get("history", {})
 
     browser_status = browser_manager.get_login_status()
-    logged_in_user = browser_status.get("user") if browser_status.get("status") == "success" else None
+    # 先按 status 决定,但还要校验 user 是不是 config 里真实存在的(避免 _current_user 残留)
+    raw_browser_user = browser_status.get("user") if browser_status.get("status") == "success" else None
+    config_user_names = {u.get("name") for u in config.get_users()}
+    if raw_browser_user and raw_browser_user in config_user_names:
+        logged_in_user = raw_browser_user
+    else:
+        # 浏览器残留的 _current_user(已删用户) → 当作未登录
+        logged_in_user = None
     cookies_valid = logged_in_user is not None
     if not cookies_valid:
+        # 降级:用 config 里第一个有凭证的用户
         for cred_user in credential_manager.get_all_users():
+            if cred_user not in config_user_names:
+                # 凭证目录存在但 config 已删 → 跳过
+                continue
             cred = credential_manager.load(cred_user)
             if cred and cred.is_valid():
                 cookies_valid = True
                 logged_in_user = cred_user
                 break
-    valid_users = cookie_manager.get_all_valid_users()
+    valid_users = [u for u in cookie_manager.get_all_valid_users() if u in config_user_names]
     cookies_info = cookie_manager.get_expiry_info(valid_users[0]) if valid_users else None
     cron = schedule_config.get("cron_expression", "0 9,12,18 * * *")
     times = schedule_config.get("times", _cron_to_times(cron))
@@ -455,6 +467,41 @@ async def get_api_reading_progress():
     })
 
 
+# === 书籍阅读进度 ===
+# 优先用 api_reader 实例的 _book_ci_counters(每本书独立的 ci 计数)
+# 进程重启后会丢(但下次跑起来又会自动重计),够用
+@app.get("/api/book-progress")
+async def book_progress(book_id: str = ""):
+    """返回指定书的当前 ci(章节顺序号)"""
+    if not book_id.strip():
+        return JSONResponse({"book_id": "", "ci": 0, "chapters_total": 0})
+    ci = 0
+    chapters_total = 0
+    try:
+        api = session_manager.api_reader if hasattr(session_manager, 'api_reader') else None
+        if api and getattr(api, '_book_ci_counters', None):
+            ci = api._book_ci_counters.get(book_id, 0)
+        # 章节总数:从磁盘缓存拿(任意用户的 chapters 缓存即可)
+        import glob as _glob, json as _json
+        from pathlib import Path as _Path
+        for p in _glob.glob("shared/credentials/*/chapters/" + book_id + ".json"):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    cached = _json.load(f)
+                    if cached and cached.get("chapters"):
+                        chapters_total = len(cached["chapters"])
+                        break
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return JSONResponse({
+        "book_id": book_id,
+        "ci": ci,
+        "chapters_total": chapters_total,
+    })
+
+
 @app.get("/api-reading-logs")
 async def get_api_reading_logs():
     return JSONResponse(session_manager.get_logs())
@@ -653,6 +700,225 @@ async def search_books(q: str = "", limit: int = 8):
     return JSONResponse(out)
 
 
+# === 书籍封面代理 ===
+# 微信读书封面 URL 形如 https://cdn.wered.qq.com/weread/cover/{...}/{bookId}/xx.jpg
+# 第三方页面直链会被防盗链(403),我们做服务端代理 + 显式 UA + Referer
+@app.get("/api/book-cover")
+async def book_cover(book_id: str = ""):
+    """根据 book_id 拿微信读书封面 URL(返回 URL 不下载图片,前端 <img src> 直接用)。
+    实现思路:
+      1) 浏览器内 fetch /web/bookDetail/{bookId} 拿 SSR cover
+      2) 失败 → 用 bookId 当 q 调 search_books_candidates 兜底
+      3) 还失败 → 返回空 cover_url,前端展示"暂无封面"占位
+    """
+    if not book_id.strip():
+        return JSONResponse({"error": "missing book_id"}, status_code=400)
+    cover_url = ""
+
+    # 1) 浏览器内 fetch bookDetail 页(SSR)
+    try:
+        if browser_manager and getattr(browser_manager, "page", None):
+            js = (
+                "(async () => {"
+                "  try {"
+                "    const r = await fetch(location.origin + '/web/bookDetail/" + book_id + "', {credentials: 'include'});"
+                "    const html = await r.text();"
+                "    let m = html.match(/\"cover\"\\s*:\\s*\"(https?:\\\\/\\\\/[^\"]+)\"/);"
+                "    if (!m) m = html.match(/\"coverUrl\"\\s*:\\s*\"(https?:\\\\/\\\\/[^\"]+)\"/);"
+                "    if (m) return m[1].replace(/\\\\\\\\u002F/g, '/').replace(/\\\\\\\\/g, '/');"
+                "    return '';"
+                "  } catch(e) { return ''; }"
+                "})()"
+            )
+            try:
+                cover_url = await asyncio.wait_for(
+                    browser_manager.page.evaluate(js),
+                    timeout=5.0
+                )
+            except Exception:
+                cover_url = ""
+    except Exception:
+        cover_url = ""
+
+    # 2) SSR 没拿到 → 用 bookId 调 search 兜底
+    if not cover_url or "http" not in cover_url:
+        try:
+            r = await browser_manager.search_books_candidates(book_id, limit=3)
+            for cand in (r.get("results") or []):
+                if cand.get("bookId") == book_id and cand.get("cover"):
+                    cover_url = cand["cover"]
+                    break
+            # 没精确匹配就用第一条
+            if not cover_url and r.get("results"):
+                first = r["results"][0]
+                if first.get("cover"):
+                    cover_url = first["cover"]
+        except Exception:
+            pass
+
+    return JSONResponse({
+        "book_id": book_id,
+        "cover_url": cover_url or "",
+    })
+
+
+@app.get("/api/cover-proxy")
+async def cover_proxy(url: str = ""):
+    """封面代理:从微信读书 CDN 拉图(带 Referer 头)流回前端,绕过防盗链。
+    前端 <img src="/api/cover-proxy?url=..."> 即可,失败时浏览器原生 onerror。
+    """
+    if not url.startswith("http"):
+        return JSONResponse({"error": "bad url"}, status_code=400)
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as cli:
+            r = await cli.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://weread.qq.com/",
+            })
+        if r.status_code != 200:
+            return JSONResponse({"error": f"upstream {r.status_code}"}, status_code=r.status_code)
+        ct = r.headers.get("content-type", "image/jpeg")
+        return Response(content=r.content, media_type=ct, headers={"Cache-Control": "public, max-age=86400"})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/cover-screenshot")
+async def cover_screenshot(book_id: str = ""):
+    """获取书籍封面(磁盘缓存 + 单本原图)。
+    优先级:
+      1) shared/covers/{bookId}.png → 有就直返
+      2) 用 Playwright 打开 /web/bookDetail/{bookId},从 og:image meta 拿到"单本封面"真 URL
+         (这个 URL 才是真正的 2:3 单本书封,不是 DOM 里的整张大图)
+      3) 服务端用 httpx 拉原图 + 防盗链 Referer → PIL 后处理(统一尺寸、加白底)
+      4) 写盘 → 返回
+    缓存触发重新获取的时机:
+      - 文件不存在(新加书 / 用户主动删)
+      - 文件存在但 size=0 / 不可读
+      - DELETE /api/cover-screenshot?book_id=X
+    """
+    if not book_id.strip():
+        return JSONResponse({"error": "missing book_id"}, status_code=400)
+    import re as _re
+    if not _re.match(r"^[A-Za-z0-9_-]+$", book_id):
+        return JSONResponse({"error": "bad book_id"}, status_code=400)
+    cache_dir = Path("shared/covers")
+    cache_path = cache_dir / f"{book_id}.jpg"
+
+    # 1) 磁盘有缓存 → 直返
+    try:
+        if cache_path.exists() and cache_path.stat().st_size > 0:
+            data = cache_path.read_bytes()
+            return Response(
+                content=data,
+                media_type="image/jpeg",
+                headers={"Cache-Control": "public, max-age=86400", "X-Cover-Cache": "hit"},
+            )
+    except Exception:
+        pass
+
+    # 2) 从 og:image 拿真封面 URL
+    cover_url = ""
+    try:
+        if not browser_manager or not getattr(browser_manager, "page", None):
+            return JSONResponse({"error": "browser not ready"}, status_code=503)
+        from urllib.parse import quote
+        page = browser_manager.page
+        if "weread.qq.com" not in (page.url or ""):
+            await page.goto("https://weread.qq.com/", wait_until="domcontentloaded", timeout=15000)
+        detail_page = await page.context.new_page()
+        try:
+            url = f"https://weread.qq.com/web/bookDetail/{quote(book_id, safe='')}"
+            await detail_page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            try:
+                await detail_page.wait_for_selector("meta[property='og:image']", timeout=6000)
+            except Exception:
+                pass
+            js = """
+            (() => {
+              const og = document.querySelector('meta[property="og:image"]');
+              if (og && og.content && og.content.startsWith('http')) return og.content;
+              // 备选:.wr_bookCover_img
+              const img = document.querySelector('img.wr_bookCover_img, .wr_bookCover img, img[alt="书籍封面"]');
+              if (img && img.src) return img.src;
+              return '';
+            })()
+            """
+            cover_url = (await detail_page.evaluate(js) or "").strip()
+        finally:
+            try:
+                await detail_page.close()
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(f"og:image 提取失败,降级到空: {e}")
+
+    if not cover_url or "http" not in cover_url:
+        return JSONResponse({"error": "cover image not found"}, status_code=404)
+
+    # 3) 服务端拉原图(带防盗链)
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=12, follow_redirects=True) as cli:
+            r = await cli.get(cover_url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://weread.qq.com/",
+            })
+        if r.status_code != 200:
+            return JSONResponse({"error": f"upstream {r.status_code}"}, status_code=r.status_code)
+        raw = r.content
+    except Exception as e:
+        return JSONResponse({"error": f"fetch failed: {e}"}, status_code=502)
+
+    # 4) PIL 后处理:统一到 240×320(3:4 比例) + 白底居中 + 轻微阴影
+    out_bytes = _postprocess_cover(raw, target_w=240, target_h=320)
+    if out_bytes is None:
+        return JSONResponse({"error": "image decode failed"}, status_code=500)
+
+    # 5) 写盘(原子写:tmp → rename)
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        # 顺便清理老的 .png 缓存(从截图方案迁过来)
+        old_png = cache_path.with_suffix(".png")
+        if old_png.exists():
+            try: old_png.unlink()
+            except Exception: pass
+        tmp_path = cache_path.with_suffix(".jpg.tmp")
+        tmp_path.write_bytes(out_bytes)
+        tmp_path.replace(cache_path)
+    except Exception as e:
+        logger.warning(f"封面缓存写盘失败(非致命,直接返回): {e}")
+
+    return Response(
+        content=out_bytes,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400", "X-Cover-Cache": "miss"},
+    )
+
+
+@app.delete("/api/cover-screenshot")
+async def cover_screenshot_invalidate(book_id: str = ""):
+    """删除指定 book_id 的封面缓存(新 .jpg + 兼容老 .png),下次访问会重新获取。
+    用法:用户在 UI 上点"重新截图"或"刷新封面"时调用。
+    """
+    import re as _re
+    if not _re.match(r"^[A-Za-z0-9_-]+$", book_id):
+        return JSONResponse({"error": "bad book_id"}, status_code=400)
+    cache_dir = Path("shared/covers")
+    removed = False
+    # 删新 .jpg + 兼容老 .png
+    for ext in (".jpg", ".png"):
+        p = cache_dir / f"{book_id}{ext}"
+        try:
+            if p.exists():
+                p.unlink()
+                removed = True
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
+    return JSONResponse({"status": "ok", "removed": removed, "book_id": book_id})
+
+
 @app.get("/reader-status")
 async def get_reader_status():
     return JSONResponse(reader.get_status())
@@ -700,9 +966,16 @@ async def clear_history():
 
 @app.get("/users")
 async def get_users():
+    """返回用户列表(严格按 config.users,不再虚拟显示 default)。
+
+    修复:之前 config.users 为空时会虚拟塞一个 default 用户进列表,
+    导致用户清空账号后前端还显示一个"幽灵 default",体验上是 bug。
+    现在:config.users 空 → 返回空数组,前端展示"暂无用户"引导扫码登录。
+
+    旧 default 残留清理:用户可手动调 DELETE /users/default(后端有特例放行)
+    """
     users = config.get_users()
     user_status = []
-    shown = set()
     for u in users:
         user_name = u.get("name", "")
         display_name = u.get("display_name", "") or user_name
@@ -715,19 +988,6 @@ async def get_users():
             "real_name": real_name,
             "display_name": display_name,
             "credential_info": credential_manager.get_expiry_info(user_name) if has_credential else None
-        })
-    if not users:
-        cred = credential_manager.load("default")
-        is_logged = cookie_manager.is_valid() or (cred is not None)
-        real_name = (cred.user_name if cred and cred.user_name else None) or "default"
-        user_status.append({
-            "name": "default",
-            "display_name": "default",
-            "logged_in": is_logged,
-            "real_name": real_name,
-            "books": [],
-            "reading_overrides": {},
-            "credential_info": {"saved_at": cred.saved_at if cred and cred.saved_at else "未知", "expires_at": cred.expires_at if cred and cred.expires_at else "未知"} if cred else None
         })
     return JSONResponse({"users": user_status})
 
@@ -748,9 +1008,65 @@ async def add_user(request: Request):
 
 @app.delete("/users/{user_name}")
 async def delete_user(user_name: str):
-    config.remove_user(user_name)
+    """删除用户(配置 + 凭证 + cookies + 章节缓存 + 浏览器状态 全清)。
+
+    返回:
+      - status=ok: 删除成功,data 包含 config_removed(可能>1,如果原本有同名重复)
+      - status=error: 不存在该用户
+
+    特例:user_name="default" 且 config.users 为空时,允许删除磁盘上的 default 目录
+    (因为 /users API 在 config 空时虚拟显示了 default 用来占位)
+    """
+    # 先确认 config 里真的有这个用户
+    config_users = config.get_users()
+    exists = any(u.get("name") == user_name for u in config_users)
+    # 特例:default 虚拟用户不在 config 里,但磁盘上可能有遗留目录
+    if not exists:
+        if user_name == "default" and not config_users:
+            # 允许删除磁盘上残留的 default 目录
+            logger.info(f"[delete_user] 删除虚拟 default 用户(磁盘残留清理)")
+        else:
+            return JSONResponse(
+                {"status": "error", "message": f"用户 {user_name} 不存在"},
+                status_code=404,
+            )
+    config_removed = config.remove_user(user_name)
     credential_manager.delete(user_name)
-    return JSONResponse({"status": "ok", "message": f"用户 {user_name} 已删除"})
+    # 顺便清掉章节缓存目录
+    try:
+        from src.user_data_manager import user_data_manager
+        # 拿这个用户的所有 bookId 缓存逐一删
+        for book_id in user_data_manager.list_cached_books(user_name):
+            user_data_manager.delete_chapters(user_name, book_id)
+    except Exception as e:
+        logger.debug(f"清理 {user_name} 章节缓存异常(非致命): {e}")
+    # 同步清浏览器内部残留状态(_current_user 经常忘记更新,导致状态显示已删用户)
+    try:
+        bs = browser_manager.get_login_status()
+        if bs.get("user") == user_name:
+            # 切到 config 里下一个有效用户,或清空
+            next_user = config_users[0].get("name") if config_users and config_users[0].get("name") != user_name else None
+            if next_user is None and len(config_users) >= 2:
+                next_user = config_users[1].get("name")
+            if next_user:
+                browser_manager.set_current_user(next_user)
+                logger.info(f"[delete_user] 浏览器 _current_user 从 {user_name} 切到 {next_user}")
+            else:
+                # 没有任何其他用户,清掉状态
+                browser_manager.set_current_user("")
+                browser_manager._login_status = "idle"
+                browser_manager._login_error = None
+                browser_manager._needs_relogin = False
+                logger.info(f"[delete_user] 浏览器 _current_user 清空(无其他用户)")
+    except Exception as e:
+        logger.debug(f"同步浏览器状态失败(非致命): {e}")
+    return JSONResponse(
+        {
+            "status": "ok",
+            "message": f"用户 {user_name} 已删除(清理了 {config_removed} 条 config 记录 + 凭证 + 章节缓存 + 浏览器状态)",
+            "data": {"config_removed": config_removed},
+        }
+    )
 
 
 @app.put("/users/{user_name}/rename")
@@ -766,14 +1082,28 @@ async def rename_user(user_name: str, request: Request):
             config.set("users", users)
             config.save()
             return JSONResponse({"status": "ok", "message": f"已重命名为 {new_name}"})
-    if not users and user_name == "default":
-        config.add_user({"name": "default", "display_name": new_name, "books": [], "reading_overrides": {}})
-        return JSONResponse({"status": "ok", "message": f"已创建并命名为 {new_name}"})
     return JSONResponse({"status": "error", "message": "用户不存在"})
 
 
 @app.post("/users/{user_name}/login")
 async def login_user(user_name: str):
+    # 关键:扫码前自动把用户加进 config.users(如果还没在的话)
+    # 解决单用户首次扫码的两步操作问题:
+    #   之前: 用户必须先点 "添加用户" → 再点 "登录" 扫码
+    #   现在: 用户直接点 "扫码登录" 即可,系统自动创建用户记录
+    # config.users 允许为空;空的时候扫码就建,单用户也支持删除后再扫码重建
+    if not any(u.get("name") == user_name for u in config.get_users()):
+        added = config.add_user({
+            "name": user_name,
+            "display_name": user_name,
+            "books": [],
+            "reading_overrides": {},
+        })
+        if added:
+            logger.info(f"[login_user] 首次扫码,自动加入 config: {user_name}")
+        else:
+            logger.warning(f"[login_user] 自动加入 config 失败: {user_name}")
+
     browser_manager.set_current_user(user_name)
     qr_bytes = await browser_manager.start_login_with_qr(user_name)
     if qr_bytes is None:
@@ -969,3 +1299,47 @@ async def health_check():
         "status": "healthy",
         "reader_running": reader.is_reading
     })
+
+
+def _postprocess_cover(raw: bytes, target_w: int = 240, target_h: int = 320) -> bytes | None:
+    """封面后处理:统一到 3:4(target_w × target_h),白底居中,保留阴影。
+
+    输入:任意格式的封面原图(jpg/webp 等)
+    输出:PNG bytes(透明阴影 + 居中缩放)
+    失败:None(调用方 fallback 到原图)
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        # PIL 没装 → 直接返回原图 bytes(让浏览器自己渲染)
+        return raw
+    try:
+        im = Image.open(io.BytesIO(raw)).convert("RGBA")
+    except Exception:
+        return None
+    # 算缩放:等比 fit 到 target_w × target_h,留 8px padding
+    pad = 8
+    avail_w = target_w - pad * 2
+    avail_h = target_h - pad * 2
+    iw, ih = im.size
+    if iw == 0 or ih == 0:
+        return None
+    scale = min(avail_w / iw, avail_h / ih)
+    nw = max(1, int(iw * scale))
+    nh = max(1, int(ih * scale))
+    im_resized = im.resize((nw, nh), Image.LANCZOS)
+    # 合成:白底 + 居中 + 阴影
+    bg = Image.new("RGBA", (target_w, target_h), (255, 255, 255, 255))
+    # 阴影:把 im_resized 转灰 alpha 模拟
+    shadow = Image.new("RGBA", (target_w, target_h), (0, 0, 0, 0))
+    from PIL import ImageDraw
+    dr = ImageDraw.Draw(shadow)
+    sx = (target_w - nw) // 2
+    sy = (target_h - nh) // 2
+    dr.rectangle([sx + 2, sy + 3, sx + nw + 2, sy + nh + 3], fill=(0, 0, 0, 28))
+    # 合并阴影 → 白底 → 封面
+    bg.alpha_composite(shadow)
+    bg.alpha_composite(im_resized, (sx, sy))
+    out = io.BytesIO()
+    bg.convert("RGB").save(out, format="JPEG", quality=88, optimize=True)
+    return out.getvalue()

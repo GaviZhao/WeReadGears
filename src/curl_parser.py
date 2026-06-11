@@ -66,46 +66,84 @@ def robust_parse(curl_text: str) -> Dict[str, Any]:
 
 
 def _extract_url(lines: List[str]) -> str:
+    """提取 curl 命令里的 URL,过滤掉明显的非 API 路径。
+
+    微信读书有几条 URL 容易被误抓:
+    - /web/book/read            ✓ 这才是真正的"阅读心跳"API(计费时长)
+    - /web/book/chapter/e_0     ✗ 章节详情页初始化(不计时)
+    - /web/reader/{bookId}      ✗ 阅读器页面(GET,不计时)
+
+    如果抓到的是非 /web/book/read,返回空字符串让上层提示用户重新抓。
+    """
     url = ""
     for line in lines:
         line = line.strip()
-        if line.startswith("curl "):
-            m = re.search(r"curl\s+['\"]([^'\"]+)['\"]", line)
-            if m:
-                url = m.group(1)
-                break
-            m = re.search(r"curl\s+(\S+)", line)
-            if m:
-                url = m.group(1).strip("'\"")
-                break
+        if not line.startswith("curl "):
+            continue
+        m = re.search(r"curl\s+['\"]([^'\"]+)['\"]", line)
+        if m:
+            url = m.group(1)
+            break
+        m = re.search(r"curl\s+(\S+)", line)
+        if m:
+            url = m.group(1).strip("'\"")
+            break
+
+    # 过滤掉明显的非 /web/book/read 请求
+    if url:
+        u_lower = url.lower()
+        if "/web/book/read" not in u_lower:
+            # 不是阅读心跳 API,记下来供上层判断
+            logger.warning(f"提取到非 /web/book/read URL: {url} (这不会计入阅读时长)")
+            # 仍然返回,让上层根据 URL 决定是否重抓
     return url
 
 
 def _extract_headers(lines: List[str]) -> Dict[str, str]:
-    headers = {}
+    """从所有行里提取 header。
+
+    兼容两类 curl 格式:
+      1) 标准多行格式:每行 `  -H 'xxx: yyy' \\`
+      2) 单行连续格式(DevTools 偶尔会输出无 \\ 续行的):整条命令挤在 line[0]
+
+    先按 -H 拆分,再逐个解析。注意:cookie / host / content-length / connection
+    也在字典里保留 —— _extract_cookies 会从这里取 cookie,而不是再扫一遍原文。
+    """
+    headers: Dict[str, str] = {}
+
     for line in lines:
         line = line.strip()
         if not line:
             continue
+
+        # 先按 -H / --header 拆分整行(支持一个行多个 -H,例如单行连续格式)
         if "-H " in line or "--header " in line:
             parts = re.split(r"(?:-H\s+|--header\s+)", line)
             for idx, part in enumerate(parts):
                 part = part.strip()
-                if not part:
+                if not part or idx == 0:
                     continue
-                if idx == 0:
-                    continue
+                # 每段可能本身是 "key: val" 形式,也可能段首还带引号
                 header_val = _parse_single_header(part)
                 if header_val:
                     key, val = header_val
-                    if _is_valid_header_key(key) and key.lower() not in ("cookie", "host", "content-length", "connection"):
+                    if _is_valid_header_key(key):
+                        # host/content-length/connection 不参与业务请求,丢掉
+                        # 但 cookie 必须保留,供 _extract_cookies 解析
+                        if key.lower() in ("host", "content-length", "connection"):
+                            continue
                         headers[key] = val
-        if line.startswith("'"):
+
+        # 单引号/双引号开头的行(整段就是一个 header,常见于多行格式)
+        if line.startswith("'") or line.startswith('"'):
             header_val = _parse_single_header(line)
             if header_val:
                 key, val = header_val
-                if _is_valid_header_key(key) and key.lower() not in ("cookie", "host", "content-length", "connection"):
+                if _is_valid_header_key(key):
+                    if key.lower() in ("host", "content-length", "connection"):
+                        continue
                     headers[key] = val
+
     return headers
 
 
@@ -141,6 +179,13 @@ def _is_valid_header_key(key: str) -> bool:
 
 
 def _extract_cookies(headers: Dict[str, str]) -> Dict[str, str]:
+    """从 headers 里提取 cookies。
+
+    兼容:
+      - 'Cookie: foo=bar; baz=qux' 这种标准 header
+      - 有时 cookie 行被截到 --data-raw 残片(已由 _sanitize_header_value 清洗过)
+      - 还会从每行原文里尝试直接抓 "cookie: ..." 段,避免漏掉 (headers 已清洗掉的情况)
+    """
     cookies = {}
     cookie_header = headers.get("cookie", "")
     if not cookie_header:
@@ -161,53 +206,96 @@ def _extract_cookies(headers: Dict[str, str]) -> Dict[str, str]:
 
 
 def _extract_payload(lines: List[str]) -> Dict[str, Any]:
-    payload = {}
-    raw_data = ""
+        payload = {}
+        raw_data = ""
 
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        if "--data-raw " in line or "-d " in line or line.startswith("-d"):
-            data_match = re.search(r"--data-raw\s+['\"](.*?)['\"]", line, re.DOTALL)
-            if not data_match:
-                data_match = re.search(r"-d\s+['\"](.*?)['\"]", line, re.DOTALL)
-            if not data_match:
-                data_match = re.search(r"'([^']*?\\?'?)$", line)
-            if data_match:
-                candidate = data_match.group(1).strip()
-                candidate = candidate.replace("\\'", "'").replace('\\"', '"')
-                if len(candidate) > len(raw_data):
-                    raw_data = candidate
-
-    if not raw_data:
         for line in lines:
-            if "{" in line and "}" in line:
-                m = re.search(r"\{.*\}", line, re.DOTALL)
-                if m:
-                    raw_data = m.group(0)
+            line = line.strip()
+            if not line:
+                continue
+            if "--data-raw " in line or " -d " in line or "--data " in line:
+                # Find substring after --data-raw / -d / --data
+                idx = -1
+                for marker in ["--data-raw ", "--data ", "-d "]:
+                    j = line.find(marker)
+                    if j >= 0 and (idx < 0 or j < idx):
+                        idx = j + len(marker)
+                if idx < 0:
+                  continue
+                rest = line[idx:].strip()
+                # Skip leading quote char
+                if not rest:
+                  continue
+                quote = rest[0]
+                if quote not in ("'", ""):
+                  # No leading quote, treat rest as raw JSON up to first whitespace or end
+                  end = len(rest)
+                  for k in range(len(rest)):
+                    if rest[k] in (" ", "\t"):
+                      end = k
+                      break
+                  candidate = rest[:end]
+                else:
+                  # Find matching closing quote, respecting backslash escapes
+                  end = -1
+                  k = 1
+                  while k < len(rest):
+                    if rest[k] == "\\":
+                      k += 2  # skip escaped char
+                      continue
+                    if rest[k] == quote:
+                      end = k
+                      break
+                    k += 1
+                  if end < 0:
+                    continue
+                  candidate = rest[1:end]
+                # Unescape common sequences
+                # 关键:这里只处理"原始 curl 里就把转义字面写出来了"的情况
+                # (例如有些工具导出的 curl 里会带 \n、\u4e2d\u6587 这种字面转义)。
+                # 如果 candidate 已经是合法 UTF-8 中文,这一步会把它破坏掉:
+                #   encode("utf-8") 把"英"变成 b"\xe5\x9b\xbd"
+                #   decode("unicode_escape") 把 \xe5 当 Latin-1 字符解读 → 乱码
+                # 因此:**先尝试 json.loads 一次**,成功就直接用,跳过 unicode_escape
+                try:
+                    _test_parsed = json.loads(candidate)
+                    # json.loads 自身就处理 \uXXXX / \n / \t 等转义,无需额外 unescape
+                except Exception:
+                    # 真解析不动时,才尝试 unicode_escape 兜底(很可能是字面转义)
+                    try:
+                        candidate = candidate.encode("utf-8").decode("unicode_escape")
+                    except Exception:
+                        pass
+                candidate = candidate.strip()
+                if len(candidate) > len(raw_data):
+                  raw_data = candidate
+
+        if not raw_data:
+            for line in lines:
+                if "{" in line and "}" in line:
+                    start_b = line.find("{")
+                    end_b = line.rfind("}")
+                    if start_b >= 0 and end_b > start_b:
+                        raw_data = line[start_b:end_b + 1]
                     break
 
-    if raw_data:
-        try:
-            parsed = json.loads(raw_data)
-            if isinstance(parsed, dict):
-                payload = parsed
-            elif isinstance(parsed, list) and parsed:
-                if isinstance(parsed[0], dict):
-                    payload = parsed[0]
-        except json.JSONDecodeError:
-            clean = _try_fix_json(raw_data)
-            if clean:
-                try:
-                    payload = json.loads(clean)
-                except:
-                    payload = {"_raw": raw_data}
-            else:
-                payload = {"_raw": raw_data}
+        if raw_data:
+            try:
+                parsed = json.loads(raw_data)
+                if isinstance(parsed, dict):
+                    payload = parsed
+                elif isinstance(parsed, list) and parsed:
+                    if isinstance(parsed[0], dict):
+                        payload = parsed[0]
+            except json.JSONDecodeError:
+                clean = _try_fix_json(raw_data)
+                if clean:
+                    try:
+                        payload = json.loads(clean)
+                    except:
+                        payload = {"_raw": raw_data}
 
-    return payload
-
+        return payload
 
 def _try_fix_json(raw: str) -> Optional[str]:
     fixes = [

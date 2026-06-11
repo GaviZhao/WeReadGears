@@ -93,6 +93,16 @@ async def reading_with_fallback():
                 if rr and rr.errors and rr.errors.get("fail_reason"):
                     fallback_needed = True
                     fallback_reason = f"API请求异常: {rr.errors['fail_reason']}"
+                    # 关键:如果是 -2012 登录失效,主动清掉磁盘 cookie(避免下次再试同样的死 key)
+                    fr = rr.errors["fail_reason"]
+                    if "errCode=-2012" in fr or "登录已失效" in fr or "登录超时" in fr:
+                        try:
+                            user_name = r.user_name
+                            if user_name and user_name != "default":
+                                cookie_manager.save([], user_name)
+                                logger.warning(f"[main] {user_name} 登录失效,已清空其磁盘 cookie,下次会走 browser 模式或重新扫码")
+                        except Exception as e:
+                            logger.debug(f"清 cookie 异常(非致命): {e}")
                     break
                 if rr and rr.total_reads == 0 and rr.failed_reads > 0:
                     fallback_needed = True

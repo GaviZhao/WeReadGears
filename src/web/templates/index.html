@@ -115,18 +115,58 @@
         :root[data-theme="dark"]  .theme-icon-sun  { display: block; }
         /* 整站过渡 */
         body, .card, .header, .btn, .form-group input, .toggle-slider, .status-item, .book-item, .user-card, .history-item, .mode-card, .modal-box, .heatmap-wrap, .heatmap-legend, .login-hint, .qr-wrap, .ch-row input, .ch-del-btn, .user-pill, .del-btn, .add-btn, .theme-btn, .zoom-btn, .tab-btn, .tab-nav, .preview-wrap, .progress-bar { transition: background-color 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s; }
+
+        /* 热力图 (阅读统计) */
+        .heatmap-wrap { padding: 8px 4px; overflow-x: auto; display: flex; flex-direction: column; align-items: center; }
+        .heatmap-wrap::-webkit-scrollbar { height: 4px; }
+        .heatmap-wrap::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
+        .heatmap-loading { font-size: 14px; color: var(--text-3); padding: 16px 8px; text-align: center; }
+        /* 月份标签行:9 列,每列 22px,间距 4px(净 ×1.2) */
+        .heatmap-months { display: grid; grid-template-columns: repeat(var(--hm-weeks, 9), 22px); column-gap: 4px; font-size: 12px; color: var(--text-3); margin-bottom: 5px; height: 17px; }
+        .heatmap-months > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        /* 主网格:cols 横向 flex,无纵轴标签 */
+        .heatmap-grid { display: flex; gap: 0; align-items: flex-start; justify-content: flex-start; }
+        .heatmap-cols { display: flex; gap: 4px; }
+        .heatmap-col { display: flex; flex-direction: column; gap: 4px; }
+        .heatmap-cell { width: 22px; height: 22px; min-width: 22px; min-height: 22px; border-radius: 2px; background: var(--hm-empty); cursor: pointer; transition: transform 0.1s; }
+        .heatmap-cell:hover { transform: scale(1.25); outline: 1px solid var(--primary); z-index: 2; }
+        .heatmap-cell.lvl-0 { background: var(--hm-empty); }
+        .heatmap-cell.lvl-1 { background: var(--hm-l1); }
+        .heatmap-cell.lvl-2 { background: var(--hm-l2); }
+        .heatmap-cell.lvl-3 { background: var(--hm-l3); }
+        .heatmap-cell.lvl-4 { background: var(--hm-l4); }
+        .heatmap-cell.lvl-5 { background: var(--hm-l5); }
+        .heatmap-cell.future { opacity: 0.35; cursor: default; }
+        .heatmap-cell.future:hover { transform: none; outline: none; }
+        .heatmap-cell.today { box-shadow: 0 0 0 1.5px var(--primary); }
+        .heatmap-footer { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 18px; padding: 0 2px; width: 100%; }
+        .heatmap-summary { font-size: 13px; color: var(--text-2); white-space: nowrap; text-align: center; }
+        .heatmap-summary b { color: var(--text-1); font-weight: 600; }
+        /* 颜色说明:色块在阅读天数行的下方,居中 */
+        .heatmap-legend { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-3); white-space: nowrap; flex-wrap: nowrap; justify-content: center; }
+        .heatmap-legend .heatmap-cell { width: 12px; height: 12px; min-width: 12px; min-height: 12px; cursor: default; flex-shrink: 0; border-radius: 2px; }
+        .heatmap-legend .heatmap-cell:hover { transform: none; outline: none; }
+        .heatmap-tooltip { position: fixed; z-index: 9999; padding: 6px 10px; background: var(--bg-card); color: var(--text-1); border: 1px solid var(--border-strong); border-radius: 4px; font-size: 13px; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+        .heatmap-tooltip .tt-min { color: var(--text-3); }
         .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
         .dot.ok { background: var(--success); }
         .dot.bad { background: var(--danger); }
         .row { display: flex; gap: 16px; flex-wrap: wrap; }
-        .col-main { flex: 1; min-width: 0; }
-        .col-side { width: 340px; flex-shrink: 0; }
-        @media (max-width: 1100px) { .col-side { width: 100%; } }
+        .col-main { flex: 1 1 480px; min-width: 0; }
+        /* 右侧浮窗(状态 + 阅读统计):跟随滚动 */
+        .col-side { width: 320px; flex: 0 0 320px; position: sticky; top: 80px; align-self: flex-start; max-height: calc(100vh - 100px); overflow-y: auto; padding-right: 2px; }
+        .col-side::-webkit-scrollbar { width: 4px; }
+        .col-side::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
+        @media (max-width: 1100px) { .col-side { width: 100%; flex: 1 1 100%; position: static; max-height: none; } }
+        /* 兼容移动端 */
         .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 14px; }
-        .card-title { font-size: 16px; font-weight: 600; color: var(--text-1); margin-bottom: 14px; display: flex; align-items: center; justify-content: flex-start; gap: 8px; text-align: left; }
-        .card-title::before { content: ""; display: inline-block; width: 4px; height: 16px; background: var(--primary); border-radius: 2px; margin-right: 6px; }
-        .card-title-text { display: inline-flex; align-items: center; }
-        .card-title-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+        /* 卡片标题:左对齐,加大字号 + 蓝条,无 emoji 也能分块 */
+        .card-title { font-size: 17px; font-weight: 600; color: var(--text-1); margin-bottom: 14px; display: flex; align-items: center; justify-content: flex-start; gap: 8px; text-align: left; }
+        .card-title::before { content: ""; display: inline-block; width: 4px; height: 17px; background: var(--primary); border-radius: 2px; margin-right: 8px; flex-shrink: 0; }
+        .card-sub { color: var(--text-3); font-size: 12.5px; margin: -6px 0 14px 0; line-height: 1.5; }
+        /* 区块标题(卡内分组):弱化色 + 蓝边线,纯排版语言 */
+        .section-title { font-size: 13px; font-weight: 600; color: var(--text-2); margin: 18px 0 10px 0; padding-left: 8px; border-left: 3px solid var(--primary-soft); }
+        .section-title:first-child { margin-top: 0; }
         .mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
         .mode-card { padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); cursor: pointer; transition: all 0.15s; text-align: left; background: var(--bg-card); }
         .mode-card:hover { border-color: var(--primary); }
@@ -134,21 +174,29 @@
         .mode-card .mode-name { font-weight: 600; margin-bottom: 2px; color: var(--text-1); font-size: 14px; }
         .mode-card .mode-desc { font-size: 12px; color: var(--text-3); }
         .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-        .status-item { background: var(--bg-soft); border-radius: var(--radius); padding: 12px 14px; }
-        .status-item .label { color: var(--text-3); font-size: 12px; margin-bottom: 4px; }
-        .status-item .value { font-size: 14px; font-weight: 600; color: var(--text-1); }
+        .status-item { background: var(--bg-soft); border-radius: var(--radius); padding: 14px 12px; text-align: center; }
+        .status-item .label { color: var(--text-3); font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+        .status-item .value { font-size: 14px; font-weight: 600; color: var(--text-1); white-space: nowrap; }
         .status-item .value.success { color: var(--success); }
         .status-item .value.error { color: var(--danger); }
         .status-item .value.info { color: var(--primary); }
         .status-btn-group { display: flex; gap: 8px; margin-top: 12px; }
-        .status-btn { flex: 1; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; background: var(--bg-card); color: var(--text-1); }
+        .status-btn { flex: 1; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px; font-weight: 500; font-family: inherit; cursor: pointer; transition: all 0.15s; background: var(--bg-card); color: var(--text-1); display: inline-flex; align-items: center; justify-content: center; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .status-btn:hover { border-color: var(--primary); color: var(--primary); }
         .status-btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
         .status-btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); color: #fff; }
         .status-btn-secondary { background: var(--bg-card); }
         .status-btn-danger { color: var(--danger); border-color: var(--danger-soft); }
         .status-btn-danger:hover { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
-        .btn { padding: 8px 16px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; display: inline-flex; align-items: center; gap: 4px; background: var(--bg-card); color: var(--text-1); }
+        .btn {
+            height: 32px; padding: 0 16px;
+            border: 1px solid var(--border); border-radius: var(--radius);
+            font-size: 13px; font-weight: 500;
+            cursor: pointer; transition: all 0.15s;
+            display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+            background: var(--bg-card); color: var(--text-1);
+            line-height: 1; white-space: nowrap;
+        }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
         .btn-primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
@@ -158,23 +206,73 @@
         .btn-secondary:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
         .btn-danger { background: var(--bg-card); color: var(--danger); border-color: var(--danger-soft); }
         .btn-danger:hover:not(:disabled) { background: var(--danger-soft); border-color: var(--danger); }
-        .btn-sm { padding: 5px 12px; font-size: 12px; border-radius: var(--radius-sm); }
+        .btn-sm { height: 28px; padding: 0 10px; font-size: 12px; border-radius: var(--radius-sm); }
         .btn-group { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
-        .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
-        .form-group { margin-bottom: 12px; }
-        .form-group label { display: block; color: var(--text-2); font-size: 13px; font-weight: 500; margin-bottom: 6px; }
-        .form-group input[type="text"], .form-group input[type="number"], .form-group input[type="time"], .form-group input[type="password"] {
-            width: 100%; padding: 7px 11px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
-            font-size: 13px; color: var(--text-1); transition: border-color 0.15s, box-shadow 0.15s; font-family: inherit;
+        /* 添加按钮(系列: 手动添加 / 从书架导入 / 添加时间 / 添加用户)
+           全部统一:32px 高,与其他按钮同高 */
+        .add-btn {
+            height: 32px; padding: 0 14px;
+            background: var(--primary-soft); color: var(--primary);
+            border: 1px solid transparent; border-radius: var(--radius);
+            cursor: pointer;
+            font-size: 13px; font-weight: 500;
+            transition: all 0.15s;
+            display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+            line-height: 1; white-space: nowrap;
         }
-        .form-group input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+        .add-btn:hover { background: var(--primary); color: #fff; }
+        .add-btn-row { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+        .del-btn { height: 28px; padding: 0 10px; background: var(--bg-card); color: var(--danger); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; transition: all 0.15s; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+        .del-btn:hover { background: var(--danger-soft); border-color: var(--danger); }
+        .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+        .form-group { margin-bottom: 0; min-width: 0; }
+        .form-group label { display: block; color: var(--text-2); font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+        /* 所有 input 统一 32px 高,文本类允许变高 */
+        .form-group input[type="text"],
+        .form-group input[type="number"],
+        .form-group input[type="time"],
+        .form-group input[type="password"],
+        .form-group select {
+            width: 100%; height: 32px; padding: 0 10px;
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+            font-size: 13px; color: var(--text-1);
+            transition: border-color 0.15s, box-shadow 0.15s;
+            font-family: inherit; line-height: 1;
+        }
+        .form-group input.allow-tall { height: auto; min-height: 32px; padding: 6px 10px; line-height: 1.5; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
         .form-group input:disabled { background: var(--bg-soft); color: var(--text-3); }
+        /* 数值范围组(min ~ max 单位):三元素同高对齐 */
+        .range-group { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; max-width: 100%; }
+        .range-group .rg-input { width: 70px; min-width: 0; flex-shrink: 1; text-align: center; }
+        .range-group .rg-sep { color: var(--text-3); font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+        .range-group .rg-unit { color: var(--text-3); font-size: 12px; white-space: nowrap; flex-shrink: 0; }
         .toggle { position: relative; width: 38px; height: 22px; display: inline-block; flex-shrink: 0; }
         .toggle input { display: none; }
         .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: var(--border-strong); border-radius: 22px; transition: 0.2s; }
         .toggle-slider::before { position: absolute; content: ""; height: 18px; width: 18px; left: 2px; bottom: 2px; background: #fff; border-radius: 50%; transition: 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
         .toggle input:checked + .toggle-slider { background: var(--primary); }
         .toggle input:checked + .toggle-slider::before { transform: translateX(16px); }
+
+        /* 模式选择 pills */
+        .mode-pill { display: inline-flex; align-items: center; padding: 8px 16px; border: 1px solid var(--border); border-radius: 999px; cursor: pointer; user-select: none; font-size: .88rem; color: var(--text-2); background: var(--bg-elev); transition: all 0.15s; }
+        .mode-pill input[type="radio"] { display: none; }
+        .mode-pill:hover { border-color: var(--primary); color: var(--text-1); }
+        .mode-pill:has(input:checked) { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+
+        /* 时间设置卡片 hover */
+        .time-cell:hover { border-color: var(--primary) !important; }
+
+        /* 每周奖励提醒 — 简化布局 */
+        .weekly-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-elev); margin-top: 10px; }
+        .weekly-card-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+        .weekly-card-title { font-weight: 600; color: var(--text-1); font-size: .9rem; }
+        .weekly-card-body { padding: 10px 14px; }
+        .weekly-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        .weekly-status { font-size: .75rem; color: var(--text-3); margin-top: 8px; }
+        .weekly-check-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; cursor: pointer; }
+        .weekly-check-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary); cursor: pointer; }
+        .weekly-check-row span { font-size: .9rem; color: var(--text-1); }
         .save-btn { padding: 10px 36px; background: var(--primary); color: #fff; border: none; border-radius: var(--radius); font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.15s; }
         .save-btn:hover:not(:disabled) { background: var(--primary-hover); }
         .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -195,10 +293,114 @@
         .ch-row input[type=number] { width: 70px; flex: none; }
         .ch-del-btn { width: 26px; height: 26px; background: var(--bg-card); color: var(--danger); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; transition: all 0.15s; display: flex; align-items: center; justify-content: center; }
         .ch-del-btn:hover { background: var(--danger-soft); border-color: var(--danger); }
-        .add-btn { background: var(--primary-soft); color: var(--primary); border: 1px solid transparent; padding: 6px 12px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.15s; }
-        .add-btn:hover { background: var(--primary); color: #fff; }
-        .del-btn { background: var(--bg-card); color: var(--danger); border: 1px solid var(--border); padding: 3px 8px; border-radius: var(--radius-sm); cursor: pointer; font-size: 11px; transition: all 0.15s; }
-        .del-btn:hover { background: var(--danger-soft); border-color: var(--danger); }
+        .add-btn { /* 占位:实际定义在 .btn 上方统一规范区 */ }
+        .del-btn { /* 占位:实际定义在 .btn 上方统一规范区 */ }
+        /* 单选卡片(定时/守护 互斥) */
+        .mode-toggle-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .mode-toggle-card {
+            padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius);
+            cursor: pointer; background: var(--bg-card);
+            display: flex; align-items: flex-start; gap: 10px;
+            transition: all 0.15s;
+        }
+        .mode-toggle-card:hover { border-color: var(--primary); }
+        .mode-toggle-card.active { border-color: var(--primary); background: var(--primary-soft); }
+        .mode-toggle-card .mtc-radio { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border-strong); flex-shrink: 0; margin-top: 2px; position: relative; transition: all 0.15s; box-sizing: border-box; }
+        .mode-toggle-card.active .mtc-radio { border-color: var(--primary); }
+        .mode-toggle-card.active .mtc-radio::after { content: ""; position: absolute; top: 3px; left: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
+        .mode-toggle-card .mtc-body { flex: 1; min-width: 0; }
+        .mode-toggle-card .mtc-name { font-weight: 600; font-size: 14px; color: var(--text-1); margin-bottom: 2px; }
+        .mode-toggle-card .mtc-desc { font-size: 12px; color: var(--text-3); line-height: 1.5; }
+        /* 折叠区(书籍列表 / 设置面板) */
+        .collapsible-head { display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 10px 12px; background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px; user-select: none; }
+        .collapsible-head:hover { background: var(--bg-hover); }
+        .collapsible-head .ch-left { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text-1); }
+        .collapsible-head .ch-right { display: flex; align-items: center; gap: 8px; color: var(--text-3); font-size: 12px; }
+        .collapsible-head .ch-arrow { transition: transform 0.2s; display: inline-block; }
+        .collapsible-body { display: none; padding: 12px 0 4px 0; }
+        .collapsible-body.open { display: block; }
+        /* 通知通道卡片 */
+        /* 通知类型分组(国内/即时/通用) - 折叠 group,通道平铺在展开区 */
+        .notify-group-block { margin-top: 4px; }
+        .notify-cat { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px; overflow: hidden; }
+        .notify-cat > summary { padding: 10px 14px; cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; user-select: none; }
+        .notify-cat > summary::-webkit-details-marker { display: none; }
+        .notify-cat > summary:hover { background: var(--bg-hover); }
+        .notify-cat > summary .ngc-name { font-weight: 600; color: var(--text-1); font-size: 13.5px; flex: 1; }
+        .notify-cat > summary .ngc-count { font-size: 11.5px; color: var(--text-3); background: var(--bg-soft); padding: 1px 8px; border-radius: 10px; }
+        .notify-cat > summary .chevron { color: var(--text-3); font-size: 10px; transition: transform 0.15s; display: inline-block; line-height: 1; }
+        .notify-cat[open] > summary .chevron { transform: rotate(90deg); }
+        .notify-cat[open] > summary { border-bottom: 1px solid var(--border); }
+        .notify-cat-body { padding: 6px 0; }
+        .notify-cat .ch-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; transition: background 0.15s; }
+        .notify-cat .ch-row:hover { background: var(--bg-soft); }
+        .notify-cat .ch-row + .ch-row { border-top: 1px solid var(--border); }
+        .notify-cat .ch-row-name { font-weight: 500; color: var(--text-1); font-size: 13px; min-width: 90px; flex-shrink: 0; }
+        .notify-cat .ch-row-fields { display: flex; gap: 8px; flex: 1; min-width: 0; flex-wrap: wrap; }
+        .notify-cat .ch-row-fields .form-group input { height: 30px; }
+        .notify-cat.muted { opacity: 0.5; }
+
+        /* 顶部工具栏(已废弃:状态/统计迁回右侧浮窗) */
+        .top-toolbar { display: none; }
+
+        /* 书籍横滚布局 */
+        /* 书籍卡片:封面图 + 标题对齐 + 序号 + 章节进度 + 卡底删除 */
+        .book-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+        .book-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; transition: all 0.15s; }
+        .book-card:hover { border-color: var(--primary); box-shadow: var(--shadow-sm); }
+        /* 封面图:统一比例,16:11, 加载失败占位 */
+        .book-card-cover { width: 100%; aspect-ratio: 3/4; background: var(--bg-soft); display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+        .book-card-cover img { width: 100%; height: 100%; object-fit: contain; display: block; }
+        .book-card-cover .cover-fallback { color: var(--text-3); font-size: 11px; text-align: center; padding: 8px; line-height: 1.4; }
+        .book-card-cover .book-card-idx { position: absolute; top: 6px; left: 6px; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; line-height: 1; }
+        .book-card-cover .cover-loading { color: var(--text-3); font-size: 11px; }
+        /* 封面右上角刷新按钮:hover 显示,点击触发重新截图 */
+        .book-card-cover .cover-refresh { position: absolute; top: 6px; right: 6px; z-index: 3; width: 22px; height: 22px; background: rgba(0, 0, 0, 0.55); color: #fff; border: none; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 13px; line-height: 1; opacity: 0; transition: opacity 0.15s; }
+        .book-card-cover:hover .cover-refresh { opacity: 1; }
+        .book-card-cover .cover-refresh:hover { background: var(--primary); }
+        .book-card-cover .cover-refresh:disabled { opacity: 0.6; cursor: wait; }
+        .book-card-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+        .book-card-name { font-weight: 600; color: var(--text-1); font-size: 15px; line-height: 1.4; min-height: 42px; display: flex; align-items: flex-start; }
+        .book-card-name input { background: transparent; border: none; border-bottom: 1px solid transparent; color: var(--text-1); font-weight: 600; font-size: 15px; outline: none; width: 100%; padding: 1px 0; line-height: 1.4; font-family: inherit; }
+        .book-card-name input:hover { border-bottom-color: var(--border); }
+        .book-card-name input:focus { border-bottom-color: var(--primary); }
+        .book-card-id { font-size: 11px; color: var(--text-3); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .book-card-progress { font-size: 11px; color: var(--primary); display: flex; align-items: center; gap: 4px; }
+        .book-card-progress .progress-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); display: inline-block; }
+        .book-card-footer { padding: 8px 12px; border-top: 1px solid var(--border); display: flex; gap: 6px; }
+        .book-card-footer .book-card-del { flex: 1; height: 26px; padding: 0 8px; font-size: 12px; background: transparent; color: var(--text-2); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; transition: all 0.15s; display: inline-flex; align-items: center; justify-content: center; }
+        .book-card-footer .book-card-del:hover { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-soft); }
+
+        /* 右上角用户菜单 */
+        .user-menu { position: relative; }
+        .user-menu-trigger { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; background: var(--bg-soft); border: 1px solid var(--border); border-radius: 16px; font-size: 14px; font-weight: 600; color: var(--text-1); cursor: pointer; user-select: none; transition: all 0.15s; font-family: inherit; }
+        .user-menu-trigger:hover { background: var(--bg-hover); border-color: var(--primary); }
+        .user-menu-trigger .caret { color: var(--text-3); font-size: 10px; font-weight: 400; }
+        /* 右上角用户菜单 - 紧凑布局,240-280px */
+        .user-menu-popover { position: absolute; top: calc(100% + 6px); right: 0; width: 260px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); padding: 10px; z-index: 200; display: none; }
+        .user-menu-popover.open { display: block; }
+        .user-menu-popover .um-content { display: none; max-height: 320px; overflow-y: auto; }
+        .user-menu-popover .um-content.active { display: block; }
+        .user-menu-popover .um-actions { display: flex; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+        .user-menu-popover .um-actions .btn { flex: 1; }
+        .user-menu-popover .um-empty { text-align: center; color: var(--text-3); font-size: 12px; padding: 12px 4px; line-height: 1.6; }
+        .user-menu-popover .um-row { padding: 7px 8px; border-radius: var(--radius-sm); transition: background 0.15s; }
+        .user-menu-popover .um-row + .um-row { margin-top: 1px; }
+        .user-menu-popover .um-row:hover { background: var(--bg-soft); }
+        .user-menu-popover .um-row .um-row-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+        .user-menu-popover .um-row .um-name { font-weight: 500; color: var(--text-1); font-size: 12.5px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .user-menu-popover .um-row .um-status { font-size: 10px; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; }
+        .user-menu-popover .um-row .um-status.on { background: var(--success-soft); color: var(--success); }
+        .user-menu-popover .um-row .um-status.off { background: var(--danger-soft); color: var(--danger); }
+        .user-menu-popover .um-row .um-actions-mini { display: flex; gap: 4px; margin-top: 6px; }
+        .user-menu-popover .um-row .um-btn-mini { height: 24px; padding: 0 10px; font-size: 12px; font-weight: 500; background: var(--bg-card); color: var(--text-2); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-family: inherit; }
+        .user-menu-popover .um-row .um-btn-mini:hover { border-color: var(--primary); color: var(--primary); }
+        .user-menu-popover .um-row .um-btn-mini.danger:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
+        .user-menu-popover .um-row .um-info { font-size: 10.5px; color: var(--text-3); margin-top: 3px; }
+
+        /* Cookie 失效条(独立于用户菜单,不会跟用户菜单重叠) */
+        .cookie-warn-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; background: var(--danger-soft); color: var(--danger); border: 1px solid #fdc7c9; border-radius: 14px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
+        .cookie-warn-pill:hover { background: var(--danger); color: #fff; }
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(31, 35, 41, 0.5); z-index: 1000; justify-content: center; align-items: center; }
         .modal-overlay.active { display: flex; }
         .modal-box { background: var(--bg-card); border-radius: var(--radius); padding: 28px; max-width: 400px; width: 90%; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.15); }
@@ -234,47 +436,10 @@
         .history-item .history-status { font-size: 10px; line-height: 1; }
         .history-item .history-status.success { color: var(--success); }
         .history-item .history-status.failed { color: var(--danger); }
-        .stat-card { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 12px; text-align: center; }
-        .stat-card .stat-value { font-size: 20px; font-weight: 600; color: var(--text-1); }
+        .stat-card { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 8px; text-align: center; overflow: hidden; }
+        .stat-card .stat-value { font-size: 20px; font-weight: 600; color: var(--text-1); white-space: nowrap; }
         .stat-card .stat-value .stat-unit { font-size: 11px; color: var(--text-3); font-weight: 400; margin-left: 3px; }
         .stat-card .stat-label { color: var(--text-3); font-size: 11px; margin-top: 2px; }
-        /* 热力图(GitHub contributions 风格,精致版) */
-        /* 容器:柔背景 + 圆角,给主区留呼吸 */
-        .heatmap-wrap { margin-top: 12px; background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 18px 14px 18px; }
-        .heatmap-loading { color: var(--text-3); font-size: 12px; text-align: center; padding: 30px 0; }
-        .heatmap-layout { display: flex; gap: 6px; align-items: flex-start; }
-        .heatmap-main { flex: 1; min-width: 0; }
-        /* 月份标签:与 grid 列严格对齐,字号 11px,字距 +0.4px,顶 16px 行高;
-           文字居中在月份跨度内,通过内联 grid-column / span 实现;
-           整表用 fit-content 居中,列宽 = 格子宽(22px),跟 grid 严格对齐 */
-        .heatmap-months { display: grid; grid-template-columns: repeat(var(--hm-weeks, 9), 18px); column-gap: 4px; row-gap: 0; width: fit-content; margin: 0 auto 6px auto; color: var(--text-2); font-size: 11px; font-weight: 500; letter-spacing: 0.4px; line-height: 16px; height: 16px; }
-        .heatmap-months > div { text-align: center; overflow: visible; white-space: nowrap; }
-        /* 主网格:18×18 格子,横竖间距 4px,圆角 3px,行高 22px;
-           整表 fit-content 居中 */
-        .heatmap-grid { display: grid; grid-template-columns: repeat(var(--hm-weeks, 9), 18px); column-gap: 4px; row-gap: 4px; width: fit-content; margin: 0 auto; }
-        .heatmap-col { display: grid; grid-template-rows: repeat(7, 22px); gap: 0; }
-        .heatmap-col { display: grid; grid-template-rows: repeat(7, 22px); gap: 0; }
-        .heatmap-cell { width: 18px; height: 18px; border-radius: 3px; background: var(--hm-empty); cursor: pointer; transition: transform 0.12s ease, box-shadow 0.12s; }
-        .heatmap-cell:hover { transform: scale(1.4); z-index: 2; box-shadow: 0 0 0 1.5px var(--hm-today); }
-        .heatmap-cell.future { opacity: 0.22; cursor: default; }
-        .heatmap-cell.today { box-shadow: 0 0 0 1.5px var(--hm-today); }
-        .heatmap-cell.lvl-1 { background: var(--hm-l1); }
-        .heatmap-cell.lvl-2 { background: var(--hm-l2); }
-        .heatmap-cell.lvl-3 { background: var(--hm-l3); }
-        .heatmap-cell.lvl-4 { background: var(--hm-l4); }
-        .heatmap-cell.lvl-5 { background: var(--hm-l5); }
-        /* 底部一行:居中布局,统计和图例水平并列 */
-        .heatmap-footer { display: flex; justify-content: center; align-items: center; margin-top: 14px; flex-wrap: wrap; gap: 12px; }
-        .heatmap-summary { color: var(--text-2); font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
-        .heatmap-summary strong { color: var(--text-1); font-weight: 600; font-size: 14px; margin-right: 2px; }
-        .heatmap-summary .sep { color: var(--border-strong); margin: 0 6px; }
-        /* 图例:胶囊样式,每个色块带具体区间 */
-        .heatmap-legend { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; color: var(--text-3); font-size: 11px; }
-        .heatmap-legend .heatmap-cell { cursor: help; width: 11px; height: 11px; border-radius: 2px; }
-        .heatmap-legend .legend-tick { display: inline-block; }
-        .heatmap-tooltip { position: fixed; background: rgba(15, 17, 21, 0.94); color: #fff; font-size: 11.5px; padding: 7px 11px; border-radius: 5px; pointer-events: none; z-index: 9999; white-space: nowrap; box-shadow: 0 6px 18px rgba(0,0,0,0.2); line-height: 1.5; }
-        .heatmap-tooltip b { font-weight: 600; color: #fff; }
-        .heatmap-tooltip .tt-min { color: #40c463; font-weight: 600; }
         .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
         .tab-nav { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
         .tab-btn { padding: 8px 16px; background: transparent; border: none; color: var(--text-2); cursor: pointer; font-size: 15px; font-weight: 600; transition: all 0.15s; border-bottom: 2px solid transparent; margin-bottom: -1px; }
@@ -327,6 +492,7 @@
             .card { padding: 14px 14px; }
             .col-side { width: 100%; }
             .mode-cards { grid-template-columns: 1fr; }
+            .mode-toggle-row { grid-template-columns: 1fr; }
             .stat-row { grid-template-columns: repeat(3, 1fr); }
             .toast-container { top: 8px; right: 8px; left: 8px; }
             .toast { max-width: 100%; }
@@ -343,8 +509,8 @@
         .header-banner { background: var(--danger-soft); border: 1px solid #fdc7c9; color: var(--danger); padding: 8px 16px; text-align: center; font-size: 13px; border-radius: var(--radius); margin: 0 24px 16px; }
         .header-banner button { margin-left: 12px; padding: 3px 12px; background: var(--danger); color: #fff; border: none; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; }
         .search-row { display: flex; gap: 8px; align-items: center; }
-        .search-row input { flex: 1; padding: 7px 11px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; background: var(--bg-card); color: var(--text-1); outline: none; }
-        .search-row input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+        .search-row > input { flex: 1; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; background: var(--bg-card); color: var(--text-1); outline: none; }
+        .search-row > input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
     </style>
 
 </head>
@@ -361,18 +527,32 @@
             <svg class="theme-icon-sun" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
             <svg class="theme-icon-moon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         </button>
-        <span id="headerCookieBadge" style="display:none" class="user-pill"><span class="dot bad"></span>Cookie 已失效,部分功能受限</span>
-        <span id="headerUserPill" class="user-pill" style="display:none"><span class="dot ok"></span><span id="headerUserName"></span></span>
+        <!-- Cookie 失效提示(独立于用户菜单,一直可见) -->
+        <span id="headerCookieBadge" class="cookie-warn-pill" style="display:none" onclick="openLoginModal()" title="点击重新登录">
+            <span class="dot bad"></span>Cookie 已失效 · 重新登录
+        </span>
+        <!-- 用户菜单(点击展开) -->
+        <div class="user-menu" id="userMenu">
+            <div class="user-menu-trigger" onclick="toggleUserMenu(event)">
+                <span id="headerUserName">未登录</span>
+                <span class="caret">▼</span>
+            </div>
+            <div class="user-menu-popover" id="userMenuPopover">
+                <div class="um-content active" id="umUsers">
+                    <div id="umUserList"></div>
+                    <div class="um-actions">
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="showAddUser()">+ 添加用户</button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="openLoginModal()">登录当前</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 <div class="container">
-    <div id="reloginBanner" class="header-banner" style="display:none">
-        <span>Cookie 已失效,模拟模式不可用。请重新扫码登录后继续。</span>
-        <button onclick="openLoginModal()">立即重新登录</button>
-    </div>
     <form id="configForm">
     <div class="row">
-        <div class="col-main">
+    <div class="col-main">
             <!-- 阅读模式 -->
             <div class="card">
                 <div class="card-title">阅读模式</div>
@@ -397,7 +577,7 @@
                         <span class="zoom-level" id="zoomLabel">100%</span>
                         <button class="zoom-btn" type="button" onclick="adjustZoom(.1)">+</button>
                         <button class="zoom-btn" type="button" onclick="adjustZoom(0)">&#x21BA;</button>
-                        <input type="text" id="navUrl" value="https://weread.qq.com/" placeholder="URL" style="flex:1;min-width:120px;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;font-size:.82rem;color:var(--text-1)">
+                        <input type="text" id="navUrl" value="https://weread.qq.com/" placeholder="URL" style="flex:1;min-width:120px;height:32px;padding:0 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;font-size:13px;color:var(--text-1)">
                         <button class="btn btn-secondary" type="button" style="padding:8px 16px;font-size:.8rem" onclick="navigateBrowser()">跳转</button>
                     </div>
                 </div>
@@ -427,221 +607,303 @@
             <!-- 阅读设置 -->
             <div class="card" id="readingConfig">
                 <div class="card-title">阅读设置</div>
-                <div class="form-row">
-                    <div class="form-group"><label>目标时长(分钟)</label><input type="text" name="target_duration" value="{{ reading.target_duration }}"></div>
-                    <div class="form-group"><label>阅读间隔(秒)</label><input type="text" name="reading_interval" value="{{ reading.reading_interval }}"></div>
-                </div>
+                <p class="card-sub">智能随机模式基于阅读时长和历史记录自动挑选书籍与章节</p>
+
+                <div class="section-title">目标时长</div>
                 <div class="form-group">
-                    <label>阅读模式</label>
-                    <div style="display:flex;gap:20px;flex-wrap:wrap;">
-                        <label style="display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:.85rem;cursor:pointer"><input type="radio" name="reading_mode" value="smart_random" {{ 'checked' if reading.mode == 'smart_random' else '' }} style="accent-color:var(--primary)"> 智能随机</label>
-                        <label style="display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:.85rem;cursor:pointer"><input type="radio" name="reading_mode" value="sequential" {{ 'checked' if reading.mode == 'sequential' else '' }} style="accent-color:var(--primary)"> 顺序阅读</label>
-                        <label style="display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:.85rem;cursor:pointer"><input type="radio" name="reading_mode" value="pure_random" {{ 'checked' if reading.mode == 'pure_random' else '' }} style="accent-color:var(--primary)"> 纯随机</label>
+                    <label>目标时长(分钟)</label>
+                    <div class="range-group">
+                        <input type="number" class="rg-input" id="target_duration_min" min="1" placeholder="最小" value="{{ reading.target_duration.split('-')[0] if '-' in (reading.target_duration|string) else '30' }}">
+                        <span class="rg-sep">~</span>
+                        <input type="number" class="rg-input" id="target_duration_max" min="1" placeholder="最大" value="{{ reading.target_duration.split('-')[1] if '-' in (reading.target_duration|string) else '60' }}">
+                        <span class="rg-unit">分钟</span>
                     </div>
+                    <input type="hidden" name="target_duration" id="target_duration_merged">
+                </div>
+
+                <div class="section-title">阅读节奏</div>
+                <div class="form-group">
+                    <label>阅读间隔(秒)</label>
+                    <div class="range-group">
+                        <input type="number" class="rg-input" id="reading_interval_min" min="1" placeholder="最小" value="{{ reading.reading_interval.split('-')[0] if '-' in (reading.reading_interval|string) else '10' }}">
+                        <span class="rg-sep">~</span>
+                        <input type="number" class="rg-input" id="reading_interval_max" min="1" placeholder="最大" value="{{ reading.reading_interval.split('-')[1] if '-' in (reading.reading_interval|string) else '20' }}">
+                        <span class="rg-unit">秒</span>
+                    </div>
+                    <input type="hidden" name="reading_interval" id="reading_interval_merged">
                 </div>
             </div>
 
             <!-- 书籍配置 -->
             <div class="card">
                 <div class="card-title">书籍配置</div>
-                <p style="color:var(--text-3);font-size:.85rem;margin-bottom:16px">不配置则自动从书架导入</p>
+                <p class="card-sub">不配置则自动从书架导入;可手动添加或从书架批量导入</p>
                 <div class="search-row" style="margin-bottom:12px">
-                    <input type="text" id="bookSearchInput" placeholder="输入书名搜索并加入配置 (例: 明朝那些事儿)">
+                    <input type="text" id="bookSearchInput" placeholder="输入书名搜索并加入配置(例: 明朝那些事儿)">
                     <button type="button" id="bookSearchBtn" class="btn btn-primary" onclick="openGlobalSearchBookModal()">搜索书籍</button>
                 </div>
                 <div id="bookList"></div>
-                <div style="display:flex;gap:8px;margin-top:12px">
-                    <button type="button" class="add-btn" onclick="addBook()">+ 手动添加(空)</button>
+                <div class="add-btn-row">
+                    <button type="button" class="add-btn" onclick="addBook()">+ 手动添加</button>
                     <button type="button" class="add-btn" onclick="importShelf()">从书架导入</button>
                 </div>
                 <div id="searchResults" style="margin-top:12px"></div>
                 <input type="hidden" name="books_json" id="booksJson" value="[]">
             </div>
 
-            <!-- 定时与守护进程 -->
+            <!-- 定时与守护进程(单选互斥,只两个选项) -->
             <div class="card">
                 <div class="card-title">定时与守护进程</div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>启用定时阅读</label>
-                        <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="schedule_enabled" {{ 'checked' if schedule.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                <p class="card-sub">两种模式二选一:不选时仅手动触发</p>
+
+                <div class="mode-toggle-row">
+                    <div class="mode-toggle-card {{ 'active' if schedule.enabled else '' }}" id="modeSchedule" onclick="selectRunMode('schedule')">
+                        <div class="mtc-radio"></div>
+                        <div class="mtc-body">
+                            <div class="mtc-name">定时模式</div>
+                            <div class="mtc-desc">每天在指定时间点自动阅读</div>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label>启用守护进程</label>
-                        <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="daemon_enabled" {{ 'checked' if daemon.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                    <div class="mode-toggle-card {{ 'active' if daemon.enabled else '' }}" id="modeDaemon" onclick="selectRunMode('daemon')">
+                        <div class="mtc-radio"></div>
+                        <div class="mtc-body">
+                            <div class="mtc-name">守护模式</div>
+                            <div class="mtc-desc">按间隔循环,长期运行</div>
+                        </div>
                     </div>
-                    <div class="form-group"><label>时区</label><input type="text" value="{{ schedule.timezone }}" disabled></div>
                 </div>
-                <div class="form-group">
-                    <label>阅读时间</label>
-                    <div id="timeSlots" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
-                    <button type="button" class="add-btn" onclick="addTime()" style="padding:8px 16px;font-size:.8rem">+ 添加时间</button>
-                    <input type="hidden" name="schedule_times" id="scheduleTimes">
+
+                <!-- 定时模式配置 -->
+                <div class="collapsible-body {{ 'open' if schedule.enabled else '' }}" id="schedulePanel">
+                    <div class="section-title">每日阅读时间</div>
+                    <div class="form-group">
+                        <div id="timeSlots" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px"></div>
+                        <div class="add-btn-row" style="margin-top:0">
+                            <button type="button" class="add-btn" onclick="addTime()">+ 添加时间</button>
+                        </div>
+                        <input type="hidden" name="schedule_times" id="scheduleTimes">
+                    </div>
                 </div>
-                <div class="form-row">
-                    <div class="form-group"><label>守护间隔(分钟)</label><input type="text" name="daemon_session_interval" value="{{ daemon.session_interval }}"></div>
-                    <div class="form-group"><label>每日最大会话</label><input type="number" name="daemon_max_daily" value="{{ daemon.max_daily_sessions }}"></div>
+
+                <!-- 守护模式配置 -->
+                <div class="collapsible-body {{ 'open' if daemon.enabled else '' }}" id="daemonPanel">
+                    <div class="section-title">守护参数</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>会话间隔(分钟)</label>
+                            <input type="text" name="daemon_session_interval" value="{{ daemon.session_interval }}">
+                        </div>
+                        <div class="form-group">
+                            <label>每日最大会话数</label>
+                            <input type="number" name="daemon_max_daily" value="{{ daemon.max_daily_sessions }}">
+                        </div>
+                    </div>
                 </div>
+
+                <!-- 隐藏字段:由前端 selectRunMode 维护 schedule_enabled / daemon_enabled 的实际值 -->
+                <input type="hidden" name="schedule_enabled" id="scheduleEnabled" value="{{ 'true' if schedule.enabled else 'false' }}">
+                <input type="hidden" name="daemon_enabled" id="daemonEnabled" value="{{ 'true' if daemon.enabled else 'false' }}">
+                <input type="hidden" name="schedule_timezone" value="{{ schedule.timezone }}">
             </div>
 
-            <!-- 网络设置 -->
+            <!-- 网络设置(后端 api_reader.py 第 208-213 行使用) -->
             <div class="card">
                 <div class="card-title">网络设置</div>
+                <p class="card-sub">请求超时、重试和速率限制;一般无需调整</p>
                 <div class="form-row">
-                    <div class="form-group"><label>超时(秒)</label><input type="number" name="network_timeout" value="{{ network.timeout }}"></div>
-                    <div class="form-group"><label>重试次数</label><input type="number" name="network_retry_times" value="{{ network.retry_times }}"></div>
-                    <div class="form-group"><label>重试延迟</label><input type="text" name="network_retry_delay" value="{{ network.retry_delay }}"></div>
-                    <div class="form-group"><label>速率限制(次/分)</label><input type="number" name="network_rate_limit" value="{{ network.rate_limit }}"></div>
+                    <div class="form-group">
+                        <label>请求超时(秒)</label>
+                        <input type="number" name="network_timeout" value="{{ network.timeout }}">
+                    </div>
+                    <div class="form-group">
+                        <label>重试次数</label>
+                        <input type="number" name="network_retry_times" value="{{ network.retry_times }}">
+                    </div>
+                    <div class="form-group">
+                        <label>重试延迟(秒)</label>
+                        <input type="text" name="network_retry_delay" value="{{ network.retry_delay }}">
+                    </div>
+                    <div class="form-group">
+                        <label>速率限制(次/分)</label>
+                        <input type="number" name="network_rate_limit" value="{{ network.rate_limit }}">
+                    </div>
                 </div>
             </div>
 
-            <!-- 通知设置 -->
+            <!-- 通知设置(通道卡片化) -->
             <div class="card">
                 <div class="card-title">通知设置</div>
-                <div class="form-group">
-                    <label>通知总开关</label>
-                    <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="notification_enabled" {{ 'checked' if notification.enabled else '' }}><span class="toggle-slider"></span></label></div>
-                </div>
-                <div class="form-group">
-                    <label>通知模式</label>
-                    <div style="display:flex;gap:20px;flex-wrap:wrap;">
-                        <label style="display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:.85rem;cursor:pointer"><input type="radio" name="notification_only_on_failure" value="false" {{ 'checked' if not notification.only_on_failure else '' }} style="accent-color:var(--primary)"> 所有事件</label>
-                        <label style="display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:.85rem;cursor:pointer"><input type="radio" name="notification_only_on_failure" value="true" {{ 'checked' if notification.only_on_failure else '' }} style="accent-color:var(--primary)"> 仅失败</label>
+                <p class="card-sub">配置阅读结果推送通道;总开关关闭时不发送任何通知</p>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>启用通知</label>
+                        <div style="padding-top:5px"><label class="toggle"><input type="checkbox" name="notification_enabled" id="notificationEnabled" {{ 'checked' if notification.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                    </div>
+                    <div class="form-group">
+                        <label>触发模式</label>
+                        <div style="display:flex;gap:14px;padding-top:7px;flex-wrap:wrap">
+                            <label style="display:inline-flex;align-items:center;gap:6px;color:var(--text-2);font-size:13px;cursor:pointer"><input type="radio" name="notification_only_on_failure" value="false" {{ 'checked' if not notification.only_on_failure else '' }} style="accent-color:var(--primary)"> 所有事件</label>
+                            <label style="display:inline-flex;align-items:center;gap:6px;color:var(--text-2);font-size:13px;cursor:pointer"><input type="radio" name="notification_only_on_failure" value="true" {{ 'checked' if notification.only_on_failure else '' }} style="accent-color:var(--primary)"> 仅失败</label>
+                        </div>
                     </div>
                 </div>
-                <div class="weekly-card">
-                    <div class="weekly-card-head">
-                        <div class="weekly-card-title">每周奖励提醒</div>
-                        <label class="toggle"><input type="checkbox" name="weekly_reward_reminder" id="weeklyRewardToggle" {{ 'checked' if notification.get('weekly_reward_reminder', True) else '' }}><span class="toggle-slider"></span></label>
-                    </div>
-                    <div class="weekly-card-body">
-                        <div class="weekly-row">
-                            <div class="form-group" style="margin-bottom:0">
-                                <label>提醒时间</label>
-                                <div style="display:flex;gap:8px;align-items:center">
-                                    <select name="weekly_reward_day" id="weeklyRewardDay" style="padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);color:var(--text-1);font-size:13px;min-width:90px">
-                                        {% for i, name in [(0,'周一'),(1,'周二'),(2,'周三'),(3,'周四'),(4,'周五'),(5,'周六'),(6,'周日')] %}
-                                        <option value="{{ i }}" {{ 'selected' if notification.get('weekly_reward_day', 6) == i else '' }}>{{ name }}</option>
-                                        {% endfor %}
-                                    </select>
-                                    <input type="time" name="weekly_reward_time" id="weeklyRewardTime" value="{{ notification.get('weekly_reward_time', '10:00') }}" style="padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);color:var(--text-1);font-size:13px;color-scheme:light">
+
+                <!-- 通知类型分组(默认全部收起) -->
+                <div class="notify-group-block">
+                    <div class="section-title">国内推送</div>
+                    <details class="notify-cat" {{ 'open' if (notification.bark.enabled or notification.pushplus.enabled or notification.serverchan3.enabled or notification.wxpusher.enabled or notification.pushdeer.enabled) else '' }}>
+                        <summary>
+                            <span class="ngc-name">国内推送</span>
+                            <span class="ngc-count" id="ngcCount1">0/5</span>
+                            <span class="chevron">▶</span>
+                        </summary>
+                        <div class="notify-cat-body">
+                            <div class="ch-row" data-channel="bark">
+                                <label class="toggle"><input type="checkbox" class="channel-toggle" name="bark_enabled" {{ 'checked' if notification.bark.enabled else '' }}><span class="toggle-slider"></span></label>
+                                <div class="ch-row-name">Bark</div>
+                                <div class="ch-row-fields">
+                                    <div class="form-group" style="margin:0"><input type="text" class="allow-tall" name="bark_server" value="{{ notification.bark.server }}" placeholder="Server"></div>
+                                    <div class="form-group" style="margin:0"><input type="text" class="allow-tall" name="bark_device_key" value="{{ notification.bark.device_key }}" placeholder="Device Key"></div>
                                 </div>
                             </div>
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="testWeeklyNotification()">测试提醒</button>
+                            <div class="ch-row" data-channel="pushplus">
+                                <label class="toggle"><input type="checkbox" class="channel-toggle" name="pushplus_enabled" {{ 'checked' if notification.pushplus.enabled else '' }}><span class="toggle-slider"></span></label>
+                                <div class="ch-row-name">PushPlus</div>
+                                <div class="ch-row-fields">
+                                    <div class="form-group" style="margin:0;flex:1"><input type="text" class="allow-tall" name="pushplus_token" value="{{ notification.pushplus.token }}" placeholder="Token"></div>
+                                </div>
+                            </div>
+                            <div class="ch-row" data-channel="serverchan3">
+                                <label class="toggle"><input type="checkbox" class="channel-toggle" name="serverchan3_enabled" {{ 'checked' if notification.serverchan3.enabled else '' }}><span class="toggle-slider"></span></label>
+                                <div class="ch-row-name">Server 酱</div>
+                                <div class="ch-row-fields">
+                                    <div class="form-group" style="margin:0"><input type="text" class="allow-tall" name="serverchan3_uid" value="{{ notification.serverchan3.uid }}" placeholder="UID"></div>
+                                    <div class="form-group" style="margin:0"><input type="text" class="allow-tall" name="serverchan3_sendkey" value="{{ notification.serverchan3.sendkey }}" placeholder="SendKey"></div>
+                                </div>
+                            </div>
+                            <div class="ch-row" data-channel="wxpusher">
+                                <label class="toggle"><input type="checkbox" class="channel-toggle" name="wxpusher_enabled" {{ 'checked' if notification.wxpusher.enabled else '' }}><span class="toggle-slider"></span></label>
+                                <div class="ch-row-name">WxPusher</div>
+                                <div class="ch-row-fields">
+                                    <div class="form-group" style="margin:0;flex:1"><input type="text" class="allow-tall" name="wxpusher_spt" value="{{ notification.wxpusher.spt }}" placeholder="SPT"></div>
+                                </div>
+                            </div>
+                            <div class="ch-row" data-channel="pushdeer">
+                                <label class="toggle"><input type="checkbox" class="channel-toggle" name="pushdeer_enabled" {{ 'checked' if notification.pushdeer.enabled else '' }}><span class="toggle-slider"></span></label>
+                                <div class="ch-row-name">PushDeer</div>
+                                <div class="ch-row-fields">
+                                    <div class="form-group" style="margin:0;flex:1"><input type="text" class="allow-tall" name="pushdeer_pushkey" value="{{ notification.pushdeer.pushkey }}" placeholder="PushKey"></div>
+                                </div>
+                            </div>
                         </div>
-                        <div id="weeklyStatus" class="weekly-status">加载中…</div>
-                    </div>
+                    </details>
+
+                    <div class="section-title">即时通讯机器人</div>
+                    <details class="notify-cat" {{ 'open' if (notification.telegram.enabled or notification.feishu.enabled or notification.wework.enabled or notification.dingtalk.enabled) else '' }}>
+                        <summary>
+                            <span class="ngc-name">即时通讯机器人</span>
+                            <span class="ngc-count" id="ngcCount2">0/4</span>
+                            <span class="chevron">▶</span>
+                        </summary>
+                        <div class="notify-cat-body">
+                            <div class="ch-row" data-channel="telegram">
+                                <label class="toggle"><input type="checkbox" class="channel-toggle" name="telegram_enabled" {{ 'checked' if notification.telegram.enabled else '' }}><span class="toggle-slider"></span></label>
+                                <div class="ch-row-name">Telegram</div>
+                                <div class="ch-row-fields">
+                                    <div class="form-group" style="margin:0"><input type="text" class="allow-tall" name="telegram_bot_token" value="{{ notification.telegram.bot_token }}" placeholder="Bot Token"></div>
+                                    <div class="form-group" style="margin:0"><input type="text" class="allow-tall" name="telegram_chat_id" value="{{ notification.telegram.chat_id }}" placeholder="Chat ID"></div>
+                                </div>
+                            </div>
+                            <div class="ch-row" data-channel="feishu">
+                                <label class="toggle"><input type="checkbox" class="channel-toggle" name="feishu_enabled" {{ 'checked' if notification.feishu.enabled else '' }}><span class="toggle-slider"></span></label>
+                                <div class="ch-row-name">飞书</div>
+                                <div class="ch-row-fields">
+                                    <div class="form-group" style="margin:0"><input type="text" class="allow-tall" name="feishu_webhook_url" value="{{ notification.feishu.webhook_url }}" placeholder="Webhook URL"></div>
+                                    <div class="form-group" style="margin:0;width:90px"><input type="text" class="allow-tall" name="feishu_msg_type" value="{{ notification.feishu.msg_type }}" placeholder="text"></div>
+                                </div>
+                            </div>
+                            <div class="ch-row" data-channel="wework">
+                                <label class="toggle"><input type="checkbox" class="channel-toggle" name="wework_enabled" {{ 'checked' if notification.wework.enabled else '' }}><span class="toggle-slider"></span></label>
+                                <div class="ch-row-name">企业微信</div>
+                                <div class="ch-row-fields">
+                                    <div class="form-group" style="margin:0"><input type="text" class="allow-tall" name="wework_webhook_url" value="{{ notification.wework.webhook_url }}" placeholder="Webhook URL"></div>
+                                    <div class="form-group" style="margin:0;width:90px"><input type="text" class="allow-tall" name="wework_msg_type" value="{{ notification.wework.msg_type }}" placeholder="text"></div>
+                                </div>
+                            </div>
+                            <div class="ch-row" data-channel="dingtalk">
+                                <label class="toggle"><input type="checkbox" class="channel-toggle" name="dingtalk_enabled" {{ 'checked' if notification.dingtalk.enabled else '' }}><span class="toggle-slider"></span></label>
+                                <div class="ch-row-name">钉钉</div>
+                                <div class="ch-row-fields">
+                                    <div class="form-group" style="margin:0"><input type="text" class="allow-tall" name="dingtalk_webhook_url" value="{{ notification.dingtalk.webhook_url }}" placeholder="Webhook URL"></div>
+                                    <div class="form-group" style="margin:0;width:90px"><input type="text" class="allow-tall" name="dingtalk_msg_type" value="{{ notification.dingtalk.msg_type }}" placeholder="text"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+
+                    <div class="section-title">通用推送</div>
+                    <details class="notify-cat" {{ 'open' if (notification.ntfy.enabled or notification.gotify.enabled) else '' }}>
+                        <summary>
+                            <span class="ngc-name">通用推送</span>
+                            <span class="ngc-count" id="ngcCount3">0/2</span>
+                            <span class="chevron">▶</span>
+                        </summary>
+                        <div class="notify-cat-body">
+                            <div class="ch-row" data-channel="ntfy">
+                                <label class="toggle"><input type="checkbox" class="channel-toggle" name="ntfy_enabled" {{ 'checked' if notification.ntfy.enabled else '' }}><span class="toggle-slider"></span></label>
+                                <div class="ch-row-name">Ntfy</div>
+                                <div class="ch-row-fields">
+                                    <div class="form-group" style="margin:0"><input type="text" class="allow-tall" name="ntfy_server" value="{{ notification.ntfy.server }}" placeholder="Server"></div>
+                                    <div class="form-group" style="margin:0"><input type="text" class="allow-tall" name="ntfy_topic" value="{{ notification.ntfy.topic }}" placeholder="Topic"></div>
+                                </div>
+                            </div>
+                            <div class="ch-row" data-channel="gotify">
+                                <label class="toggle"><input type="checkbox" class="channel-toggle" name="gotify_enabled" {{ 'checked' if notification.gotify.enabled else '' }}><span class="toggle-slider"></span></label>
+                                <div class="ch-row-name">Gotify</div>
+                                <div class="ch-row-fields">
+                                    <div class="form-group" style="margin:0"><input type="text" class="allow-tall" name="gotify_server" value="{{ notification.gotify.server }}" placeholder="Server"></div>
+                                    <div class="form-group" style="margin:0"><input type="text" class="allow-tall" name="gotify_token" value="{{ notification.gotify.token }}" placeholder="Token"></div>
+                                    <div class="form-group" style="margin:0;width:90px"><input type="number" name="gotify_priority" value="{{ notification.gotify.priority }}" placeholder="Priority"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
                 </div>
-                <div class="ch-divider"></div>
 
-                <!-- 国内推送 -->
-                <details class="notify-group" open>
-                    <summary>国内推送</summary>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Bark</label>
-                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="bark_enabled" {{ 'checked' if notification.bark.enabled else '' }}><span class="toggle-slider"></span></label></div>
-                        </div>
-                        <div class="form-group"><label>Server</label><input type="text" name="bark_server" value="{{ notification.bark.server }}"></div>
-                        <div class="form-group"><label>Device Key</label><input type="text" name="bark_device_key" value="{{ notification.bark.device_key }}"></div>
+                <div class="section-title">每周奖励提醒</div>
+                <div class="weekly-card">
+                    <div class="weekly-card-head">
+                        <label class="weekly-check-row" for="weeklyRewardToggle" style="flex:1;cursor:pointer">
+                            <input type="checkbox" name="weekly_reward_reminder" id="weeklyRewardToggle" {{ 'checked' if notification.get('weekly_reward_reminder', True) else '' }}>
+                            <span>每周奖励提醒</span>
+                            <span style="font-size:.75rem;color:var(--text-3);font-weight:400" id="weeklySummary">
+                                {{ ['周一','周二','周三','周四','周五','周六','周日'][notification.get('weekly_reward_day', 6)] }} {{ notification.get('weekly_reward_time', '10:00') }}
+                            </span>
+                        </label>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="toggleWeeklySettings(event)">设置</button>
                     </div>
-                    <div class="ch-divider"></div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>PushPlus</label>
-                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="pushplus_enabled" {{ 'checked' if notification.pushplus.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                    <div id="weeklySettingsPanel" style="display:none;padding:10px 14px 14px 14px;border-top:1px solid var(--border)">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>提醒日</label>
+                                <select name="weekly_reward_day" id="weeklyRewardDay">
+                                    {% for i, name in [(0,'周一'),(1,'周二'),(2,'周三'),(3,'周四'),(4,'周五'),(5,'周六'),(6,'周日')] %}
+                                    <option value="{{ i }}" {{ 'selected' if notification.get('weekly_reward_day', 6) == i else '' }}>{{ name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>提醒时间</label>
+                                <input type="time" name="weekly_reward_time" id="weeklyRewardTime" value="{{ notification.get('weekly_reward_time', '10:00') }}" style="color-scheme:light">
+                            </div>
                         </div>
-                        <div class="form-group" style="flex:2"><label>Token</label><input type="text" name="pushplus_token" value="{{ notification.pushplus.token }}"></div>
-                    </div>
-                    <div class="ch-divider"></div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Server酱</label>
-                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="serverchan3_enabled" {{ 'checked' if notification.serverchan3.enabled else '' }}><span class="toggle-slider"></span></label></div>
+                        <div class="test-btn-row" style="margin-top:6px">
+                            <button type="button" class="btn btn-secondary btn-sm" id="btnTestWeekly" onclick="testWeeklyNotification()">测试推送</button>
                         </div>
-                        <div class="form-group"><label>UID</label><input type="text" name="serverchan3_uid" value="{{ notification.serverchan3.uid }}"></div>
-                        <div class="form-group"><label>SendKey</label><input type="text" name="serverchan3_sendkey" value="{{ notification.serverchan3.sendkey }}"></div>
                     </div>
-                    <div class="ch-divider"></div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>WxPusher</label>
-                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="wxpusher_enabled" {{ 'checked' if notification.wxpusher.enabled else '' }}><span class="toggle-slider"></span></label></div>
-                        </div>
-                        <div class="form-group" style="flex:2"><label>SPT</label><input type="text" name="wxpusher_spt" value="{{ notification.wxpusher.spt }}"></div>
-                    </div>
-                    <div class="ch-divider"></div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>PushDeer</label>
-                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="pushdeer_enabled" {{ 'checked' if notification.pushdeer.enabled else '' }}><span class="toggle-slider"></span></label></div>
-                        </div>
-                        <div class="form-group" style="flex:2"><label>PushKey</label><input type="text" name="pushdeer_pushkey" value="{{ notification.pushdeer.pushkey }}"></div>
-                    </div>
-                </details>
-
-                <!-- 即时通讯 -->
-                <details class="notify-group">
-                    <summary>即时通讯机器人</summary>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Telegram</label>
-                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="telegram_enabled" {{ 'checked' if notification.telegram.enabled else '' }}><span class="toggle-slider"></span></label></div>
-                        </div>
-                        <div class="form-group"><label>Bot Token</label><input type="text" name="telegram_bot_token" value="{{ notification.telegram.bot_token }}"></div>
-                        <div class="form-group"><label>Chat ID</label><input type="text" name="telegram_chat_id" value="{{ notification.telegram.chat_id }}"></div>
-                    </div>
-                    <div class="ch-divider"></div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>飞书</label>
-                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="feishu_enabled" {{ 'checked' if notification.feishu.enabled else '' }}><span class="toggle-slider"></span></label></div>
-                        </div>
-                        <div class="form-group"><label>Webhook URL</label><input type="text" name="feishu_webhook_url" value="{{ notification.feishu.webhook_url }}"></div>
-                        <div class="form-group"><label>消息类型</label><input type="text" name="feishu_msg_type" value="{{ notification.feishu.msg_type }}" placeholder="text"></div>
-                    </div>
-                    <div class="ch-divider"></div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>企业微信</label>
-                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="wework_enabled" {{ 'checked' if notification.wework.enabled else '' }}><span class="toggle-slider"></span></label></div>
-                        </div>
-                        <div class="form-group"><label>Webhook URL</label><input type="text" name="wework_webhook_url" value="{{ notification.wework.webhook_url }}"></div>
-                        <div class="form-group"><label>消息类型</label><input type="text" name="wework_msg_type" value="{{ notification.wework.msg_type }}" placeholder="text"></div>
-                    </div>
-                    <div class="ch-divider"></div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>钉钉</label>
-                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="dingtalk_enabled" {{ 'checked' if notification.dingtalk.enabled else '' }}><span class="toggle-slider"></span></label></div>
-                        </div>
-                        <div class="form-group"><label>Webhook URL</label><input type="text" name="dingtalk_webhook_url" value="{{ notification.dingtalk.webhook_url }}"></div>
-                        <div class="form-group"><label>消息类型</label><input type="text" name="dingtalk_msg_type" value="{{ notification.dingtalk.msg_type }}" placeholder="text"></div>
-                    </div>
-                </details>
-
-                <!-- 通用推送 -->
-                <details class="notify-group">
-                    <summary>通用推送</summary>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Ntfy</label>
-                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="ntfy_enabled" {{ 'checked' if notification.ntfy.enabled else '' }}><span class="toggle-slider"></span></label></div>
-                        </div>
-                        <div class="form-group"><label>Server</label><input type="text" name="ntfy_server" value="{{ notification.ntfy.server }}"></div>
-                        <div class="form-group"><label>Topic</label><input type="text" name="ntfy_topic" value="{{ notification.ntfy.topic }}"></div>
-                    </div>
-                    <div class="ch-divider"></div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Gotify</label>
-                            <div style="padding-top:6px"><label class="toggle"><input type="checkbox" name="gotify_enabled" {{ 'checked' if notification.gotify.enabled else '' }}><span class="toggle-slider"></span></label></div>
-                        </div>
-                        <div class="form-group"><label>Server</label><input type="text" name="gotify_server" value="{{ notification.gotify.server }}"></div>
-                        <div class="form-group"><label>Token</label><input type="text" name="gotify_token" value="{{ notification.gotify.token }}"></div>
-                        <div class="form-group"><label>Priority</label><input type="number" name="gotify_priority" value="{{ notification.gotify.priority }}"></div>
-                    </div>
-                </details>
+                    <div id="weeklyStatus" class="weekly-status" style="padding:6px 14px 10px">加载中…</div>
+                </div>
 
                 <div class="test-btn-row" style="margin-top:14px">
                     <button type="button" class="btn btn-secondary btn-sm" id="btnTestNotify" onclick="testNotification()">测试常规通知</button>
@@ -651,24 +913,21 @@
             <div style="text-align:center;margin:32px 0"><button type="submit" class="save-btn" id="btnSave">保存配置</button></div>
         </div>
 
-        <!-- 侧栏 -->
+        <!-- 右侧浮窗:状态 + 阅读统计(跟随滚动) -->
         <div class="col-side">
-            <!-- 状态 -->
             <div class="card">
                 <div class="card-title">状态</div>
                 <div class="status-grid" style="grid-template-columns:1fr 1fr">
                     <div class="status-item"><div class="label">进程</div><div class="value success">正常</div></div>
                     <div class="status-item"><div class="label">登录</div><div class="value {{ 'success' if cookies_valid else 'error' }}" id="loginStatus">{{ '已登录' + (': ' + logged_in_user if logged_in_user else '') if cookies_valid else '未登录' }}</div></div>
                 </div>
-                    <div class="status-btn-group">
-                        <button type="button" class="status-btn status-btn-primary" id="btnRead" onclick="triggerReading()">立即阅读</button>
-                        <button type="button" class="status-btn status-btn-secondary" id="btnCurl" onclick="captureCurl()">获取CURL</button>
-                        <button type="button" class="status-btn status-btn-secondary" id="btnLogin" onclick="openLoginModal()" style="{{ 'display:none' if cookies_valid else '' }}">登录</button>
-                        <button type="button" class="status-btn status-btn-danger" id="btnLogout" onclick="doLogout()" style="{{ '' if cookies_valid else 'display:none' }}">退出</button>
-                    </div>
+                <div class="status-btn-group">
+                    <button type="button" class="status-btn status-btn-primary" id="btnRead" onclick="triggerReading()">立即阅读</button>
+                    <button type="button" class="status-btn status-btn-secondary" id="btnCurl" onclick="captureCurl()">获取CURL</button>
+                    <button type="button" class="status-btn status-btn-secondary" id="btnLogin" onclick="openLoginModal()" style="{{ 'display:none' if cookies_valid else '' }}">登录</button>
+                    <button type="button" class="status-btn status-btn-danger" id="btnLogout" onclick="doLogout()" style="{{ '' if cookies_valid else 'display:none' }}">退出</button>
+                </div>
             </div>
-
-            <!-- 统计 -->
             <div class="card">
                 <div class="card-title">阅读统计</div>
                 <div class="stat-row">
@@ -687,21 +946,6 @@
                 </div>
                 <div class="heatmap-wrap" id="heatmapWrap">
                     <div class="heatmap-loading">加载热力图…</div>
-                </div>
-            </div>
-
-            <!-- 用户/历史 -->
-            <div class="card">
-                <div class="tab-nav">
-                    <button type="button" class="tab-btn active" onclick="switchTab(this,'users')">用户</button>
-                    <button type="button" class="tab-btn" onclick="switchTab(this,'history')">历史</button>
-                </div>
-                <div class="tab-content active" id="tabUsers">
-                    <div id="userList"></div>
-                    <button type="button" class="add-btn" onclick="showAddUser()">+ 添加用户</button>
-                </div>
-                <div class="tab-content" id="tabHistory">
-                    <div id="historyList" style="max-height:260px;overflow-y:auto"></div>
                 </div>
             </div>
         </div>
@@ -727,12 +971,12 @@
     </div>
 </div>
 
-<!-- 用户名输入弹窗 -->
+<!-- 用户名输入弹窗(支持 set / add 两种模式) -->
 <div class="modal-overlay" id="usernameModal">
     <div class="modal-box">
-        <h2>设置用户名</h2>
-        <p style="color:var(--text-3);margin-bottom:16px">请为您的账号设置一个名称（用于多账号切换）</p>
-        <input type="text" id="inputUsername" class="input-field" placeholder="请输入用户名" style="width:100%;padding:12px;border-radius:8px;border:1px solid var(--primary-soft);background:var(--bg-card);color:var(--text-1);font-size:1rem;outline:none;box-sizing:border-box">
+        <h2 id="usernameModalTitle">设置用户名</h2>
+        <p id="usernameModalDesc" style="color:var(--text-3);margin-bottom:16px">请为您的账号设置一个名称(用于多账号切换)</p>
+        <input type="text" id="inputUsername" class="input-field" placeholder="请输入用户名" style="width:100%;height:36px;padding:0 12px;border-radius:6px;border:1px solid var(--primary-soft);background:var(--bg-card);color:var(--text-1);font-size:14px;outline:none;box-sizing:border-box">
         <div id="usernameError" style="color:var(--danger);font-size:.85rem;margin-top:8px;display:none"></div>
         <div class="btn-group" style="justify-content:center;margin-top:20px">
             <button type="button" class="btn btn-secondary" onclick="closeUsernameModal()">取消</button>
@@ -762,11 +1006,11 @@
         <div style="margin-bottom:10px">
             <input type="text" id="shelfImportSearch" placeholder="搜索书架(按书名/作者过滤)" style="width:100%;padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;font-size:.9rem;color:var(--text-1);outline:none;box-sizing:border-box">
         </div>
-        <div style="display:flex;gap:6px;margin-bottom:10px;font-size:.82rem">
-            <button type="button" class="btn btn-secondary" onclick="shelfImportSelectAll(true)" style="padding:6px 12px;font-size:.78rem">全选</button>
-            <button type="button" class="btn btn-secondary" onclick="shelfImportSelectAll(false)" style="padding:6px 12px;font-size:.78rem">全不选</button>
-            <button type="button" class="btn btn-secondary" onclick="shelfImportSelectInvert()" style="padding:6px 12px;font-size:.78rem">反选</button>
-            <span id="shelfImportCount" style="margin-left:auto;color:var(--text-2);align-self:center">已选 0/0</span>
+        <div style="display:flex;gap:6px;margin-bottom:10px;font-size:.82rem;align-items:center">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="shelfImportSelectAll(true)">全选</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="shelfImportSelectAll(false)">全不选</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="shelfImportSelectInvert()">反选</button>
+            <span id="shelfImportCount" style="margin-left:auto;color:var(--text-2)">已选 0/0</span>
         </div>
         <div id="shelfImportList" style="max-height:380px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;border:1px solid var(--border);border-radius:10px;padding:8px"></div>
         <div class="btn-group" style="justify-content:flex-end;margin-top:14px;gap:8px">
@@ -898,17 +1142,31 @@ function setMode(m) {
 }
 window.setMode = setMode;
 
-// === 标签页切换 ===
-var historyInterval = null;
-function switchTab(btn, tab) {
-    document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
-    document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
-    btn.classList.add('active');
-    document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
-    if (tab === 'history') { loadHistory(); if (!historyInterval) historyInterval = setInterval(loadHistory, 5000); }
-    else if (historyInterval) { clearInterval(historyInterval); historyInterval = null; }
-}
+// === 标签页切换(侧栏已废弃,保留函数以防其他旧引用) ===
+function switchTab(btn, tab) { /* no-op:侧栏已移除 */ }
 window.switchTab = switchTab;
+
+// === 右上角用户菜单:展开/切换 tab ===
+function toggleUserMenu(ev) {
+    if (ev) ev.stopPropagation();
+    var pop = document.getElementById('userMenuPopover');
+    if (!pop) return;
+    var open = pop.classList.toggle('open');
+    if (open) {
+        loadUsers();
+    }
+}
+function closeUserMenu() {
+    var pop = document.getElementById('userMenuPopover');
+    if (pop) pop.classList.remove('open');
+}
+window.toggleUserMenu = toggleUserMenu;
+window.closeUserMenu = closeUserMenu;
+// 点外部关闭
+document.addEventListener('click', function(e) {
+    var menu = document.getElementById('userMenu');
+    if (menu && !menu.contains(e.target)) closeUserMenu();
+});
 
 // === 时间格式化 ===
 function fmtTime(iso) {
@@ -925,20 +1183,20 @@ function fmtTime(iso) {
 }
 function fmtStatus(s) { return s === 'completed' ? '完成' : (s === 'failed' || s === 'error' ? '异常' : s); }
 
-// === 历史记录 ===
+// === 历史记录(渲染到右上角菜单的「历史」tab) ===
 function loadHistory() {
     fetch('/history?limit=20').then(function(r) { return r.json(); }).then(function(d) {
-        var h = document.getElementById('historyList');
+        var h = document.getElementById('umHistoryList');
+        if (!h) return;
         var items = d.history || [];
-        if (!items.length) { h.innerHTML = '<div class="empty-state"><div class="empty-icon">&#x1F4C4;</div><div class="empty-text">暂无阅读记录</div></div>'; return; }
-        // 阅读方式映射:execution_type → 中文标签
+        if (!items.length) { h.innerHTML = '<div class="um-empty">暂无阅读记录</div>'; return; }
         function fmtMode(t) {
-            if (t === 'api') return 'API 模式';
-            if (t === 'browser') return '模拟模式';
+            if (t === 'api') return 'API';
+            if (t === 'browser') return '模拟';
             return t || '—';
         }
         h.innerHTML = items.map(function(i) {
-            var statusCls = i.final_status === 'completed' ? 'success' : 'failed';
+            var statusCls = i.final_status === 'completed' ? 'on' : 'off';
             var totalSec = i.total_duration_seconds || 0;
             var hours = Math.floor(totalSec / 3600), mins = Math.floor((totalSec % 3600) / 60), secs = totalSec % 60;
             var dur = '';
@@ -946,13 +1204,14 @@ function loadHistory() {
             if (hours > 0 || mins > 0) dur += mins + ' 分';
             if (hours === 0 && mins < 10) dur += secs + ' 秒';
             dur = dur.trim() || '0 分';
-            return '<div class="history-item">' +
-                '<div class="history-time">' + fmtTime(i.recorded_at) + '</div>' +
-                '<div class="history-content" style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
-                    '<span class="history-user" title="用户">' + (i.user || '-') + '</span>' +
-                    '<span class="history-mode ' + (i.execution_type || '') + '">' + fmtMode(i.execution_type) + '</span>' +
-                    '<span style="color:var(--text-1);font-weight:500">' + dur + '</span>' +
-                    '<span class="history-status ' + statusCls + '" title="' + fmtStatus(i.final_status) + '">●</span>' +
+            return '<div class="um-row">' +
+                '<div style="display:flex;flex-direction:column;min-width:0;flex:1">' +
+                    '<span class="um-name" style="font-size:12.5px">' + (i.user || '-') + '</span>' +
+                    '<span style="font-size:11px;color:var(--text-3)">' + fmtTime(i.recorded_at) + '</span>' +
+                '</div>' +
+                '<div class="um-actions-mini">' +
+                    '<span class="um-status ' + statusCls + '">' + dur + '</span>' +
+                    '<span class="um-status ' + (i.execution_type === 'browser' ? 'off' : 'on') + '" style="background:var(--primary-soft);color:var(--primary)">' + fmtMode(i.execution_type) + '</span>' +
                 '</div>' +
             '</div>';
         }).join('');
@@ -976,27 +1235,38 @@ async function loadUsers() {
     try {
         var r = await fetch('/users');
         var d = await r.json();
-        var h = document.getElementById('userList');
+        var h = document.getElementById('umUserList');  // 改为右上角菜单的容器
         var users = d.users || [];
-        if (!users.length) { h.innerHTML = '<div class="empty-state"><div class="empty-icon">&#x1F464;</div><div class="empty-text">暂无用户，点击下方添加</div></div>'; return; }
+        window._hasUsers = users.length > 0;
+        window.dispatchEvent(new Event('usersChanged'));
+        if (!h) return;  // 还没初始化好
+        if (!users.length) {
+            h.innerHTML = '<div class="um-empty">暂无用户<br><span style="font-size:11px">点击下方「添加用户」扫码登录</span></div>';
+            return;
+        }
         h.innerHTML = users.map(function(u) {
             var name = u.name || '';
             var displayName = u.display_name || u.real_name || name || 'unknown';
-            var loggedCls = u.logged_in ? 'logged-in' : 'not-logged';
-            var loggedText = u.logged_in ? '已登录' : '未登录';
+            var statusCls = u.logged_in ? 'on' : 'off';
+            var statusText = u.logged_in ? '已登录' : '未登录';
             var credInfo = '';
             if (u.credential_info && u.credential_info.expires_at) {
-                credInfo = '<div class="user-info-text">到期: ' + fmtTime(u.credential_info.expires_at) + '</div>';
+                credInfo = '<div class="um-info">凭证到期: ' + fmtTime(u.credential_info.expires_at) + '</div>';
             }
-            return '<div class="user-card">' +
-                '<div class="user-header">' +
-                '<input class="user-name-input" value="' + displayName.replace(/"/g, '&quot;') + '" data-old="' + name.replace(/"/g, '&quot;') + '" onblur="saveUserName(this)" onkeydown="if(event.key===\'Enter\')this.blur()">' +
-                '<span class="user-status ' + loggedCls + '">' + loggedText + '</span>' +
+            return '<div class="um-row">' +
+                '<div class="um-row-head">' +
+                    '<span class="um-name" title="' + esc(displayName) + '">' + esc(displayName) + '</span>' +
+                    '<span class="um-status ' + statusCls + '">' + statusText + '</span>' +
                 '</div>' +
-                credInfo +
-                (users.length > 1 ? '<div class="user-actions"><button type="button" class="btn btn-danger btn-sm" onclick="deleteUser(\'' + name.replace(/'/g, "\\'") + '\')">删除</button></div>' : '') +
-                '</div></div>';
+                (credInfo || '') +
+                '<div class="um-actions-mini">' +
+                    (!u.logged_in ? '<button class="um-btn-mini" onclick="loginUser(\'' + name.replace(/'/g, "\\'") + '\')">登录</button>' : '<button class="um-btn-mini" onclick="triggerUserReading(\'' + name.replace(/'/g, "\\'") + '\')">阅读</button>') +
+                    '<button class="um-btn-mini danger" onclick="deleteUser(\'' + name.replace(/'/g, "\\'") + '\')">删除</button>' +
+                '</div>' +
+            '</div>';
         }).join('');
+        if (typeof window.refreshStatistics === 'function') window.refreshStatistics();
+        if (typeof window.refreshHeatmap === 'function') window.refreshHeatmap();
     } catch(e) {}
 }
 
@@ -1029,7 +1299,7 @@ function closeLoginModal() { document.getElementById('loginModal').classList.rem
 window.openLoginModal = openLoginModal;
 window.closeLoginModal = closeLoginModal;
 
-async function startQRLogin() {
+async function startQRLogin(userName) {
     var loading = document.getElementById('loginLoading');
     var content = document.getElementById('loginContent');
     var retryBtn = document.getElementById('btnRetryLogin');
@@ -1039,16 +1309,27 @@ async function startQRLogin() {
     loading.style.display = 'block'; content.style.display = 'none'; retryBtn.style.display = 'none';
     if (qrPoll) { clearInterval(qrPoll); qrPoll = null; }
     try {
-        var r = await fetch('/login/start'); var d = await r.json();
+        // 关键:支持指定 user_name 走 /users/{name}/login,
+        // 兼容老的不传参流程 /login/start(默认用户)
+        var url = userName
+            ? '/users/' + encodeURIComponent(userName) + '/login'
+            : '/login/start';
+        var r = await fetch(url); var d = await r.json();
         if (d.status === 'already_logged_in') {
             loading.innerHTML = '<div class="login-st success">已登录</div>';
             showToast('已登录', 'success');
             setTimeout(function() { closeLoginModal(); location.reload(); }, 1200);
             return;
         }
+        if (!d.qr_image) {
+            loading.innerHTML = '<div class="login-st error">' + (d.message || '未获取到二维码') + '</div>';
+            retryBtn.style.display = 'inline-flex';
+            return;
+        }
         loading.style.display = 'none'; content.style.display = 'block';
         qrImg.src = 'data:image/png;base64,' + d.qr_image;
-        statusText.textContent = '等待扫码...'; statusText.className = 'login-st info';
+        statusText.textContent = '等待扫码' + (userName ? ' (' + userName + ')' : '') + '...';
+        statusText.className = 'login-st info';
         qrPoll = setInterval(async function() {
             try {
                 var sr = await fetch('/login/status'); var ss = await sr.json();
@@ -1059,9 +1340,10 @@ async function startQRLogin() {
                     openUsernameModal();
                 } else if (ss.status === 'success') {
                     statusText.innerHTML = '登录成功'; statusText.className = 'login-st success';
-                    loginStatus.textContent = '已登录'; loginStatus.className = 'value success';
+                    loginStatus.textContent = '已登录' + (userName ? ': ' + userName : '');
+                    loginStatus.className = 'value success';
                     clearInterval(qrPoll); qrPoll = null;
-                    showToast('登录成功', 'success');
+                    showToast('登录成功' + (userName ? ': ' + userName : ''), 'success');
                     setTimeout(function() { closeLoginModal(); location.reload(); }, 1200);
                 } else if (ss.status === 'failed') {
                     statusText.textContent = ss.error || '超时'; statusText.className = 'login-st error';
@@ -1075,8 +1357,30 @@ async function startQRLogin() {
 }
 window.startQRLogin = startQRLogin;
 
-function openUsernameModal() { document.getElementById('usernameModal').classList.add('active'); document.getElementById('inputUsername').focus(); }
-function closeUsernameModal() { document.getElementById('usernameModal').classList.remove('active'); document.getElementById('inputUsername').value = ''; document.getElementById('usernameError').style.display = 'none'; }
+// === 用户名弹窗(设置用户名 + 添加用户 共用) ===
+// mode: 'set' = 设置用户名(扫码后); 'add' = 添加用户(主动创建)
+var _usernameModalMode = 'set';
+function openUsernameModal(mode) {
+    _usernameModalMode = mode || 'set';
+    var title = document.getElementById('usernameModalTitle');
+    var desc = document.getElementById('usernameModalDesc');
+    if (_usernameModalMode === 'add') {
+        title.textContent = '添加用户';
+        desc.textContent = '输入用户名后开始扫码登录,系统会创建账号并自动启动扫码流程';
+    } else {
+        title.textContent = '设置用户名';
+        desc.textContent = '请为您的账号设置一个名称(用于多账号切换)';
+    }
+    document.getElementById('usernameModal').classList.add('active');
+    var input = document.getElementById('inputUsername');
+    input.value = '';
+    document.getElementById('usernameError').style.display = 'none';
+    setTimeout(function() { input.focus(); }, 50);
+}
+function closeUsernameModal() {
+    document.getElementById('usernameModal').classList.remove('active');
+    document.getElementById('usernameError').style.display = 'none';
+}
 window.openUsernameModal = openUsernameModal;
 window.closeUsernameModal = closeUsernameModal;
 
@@ -1086,18 +1390,34 @@ async function confirmUsername() {
     var btn = document.getElementById('btnConfirmUsername');
     var username = input.value.trim();
     if (!username) { errorDiv.textContent = '用户名不能为空'; errorDiv.style.display = 'block'; return; }
-    btn.disabled = true; btn.innerHTML = '<span class="spinner" style="width:16px;height:16px;margin:0;border-width:2px"></span>';
+    btn.disabled = true; btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;margin:0;border-width:2px"></span>';
     try {
-        var r = await fetch('/login/complete-with-username', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({user_name: username})});
-        var d = await r.json();
-        if (d.status === 'ok') {
+        if (_usernameModalMode === 'add') {
+            // 添加用户模式:直接调用 login 端点,弹二维码
+            var r = await fetch('/users/' + encodeURIComponent(username) + '/login', {method: 'POST'});
+            var d = await r.json();
             closeUsernameModal();
-            showToast('登录成功: ' + d.user, 'success');
-            var loginStatus = document.getElementById('loginStatus');
-            if (loginStatus) { loginStatus.textContent = '已登录: ' + d.user; }
-            setTimeout(function() { location.reload(); }, 1500);
+            loadUsers();
+            if (d.status === 'ok' && d.qr_image) {
+                showToast('已为用户 ' + username + ' 创建账号,请扫码登录', 'success');
+                document.getElementById('loginModal').classList.add('active');
+                startQRLogin(username);
+            } else {
+                showToast(d.message || '操作完成', d.status === 'ok' ? 'success' : 'error');
+            }
         } else {
-            errorDiv.textContent = d.message || '设置失败'; errorDiv.style.display = 'block';
+            // 设置用户名模式:扫码后,提交用户名
+            var r2 = await fetch('/login/complete-with-username', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({user_name: username})});
+            var d2 = await r2.json();
+            if (d2.status === 'ok') {
+                closeUsernameModal();
+                showToast('登录成功: ' + d2.user, 'success');
+                var loginStatus = document.getElementById('loginStatus');
+                if (loginStatus) { loginStatus.textContent = '已登录: ' + d2.user; }
+                setTimeout(function() { location.reload(); }, 1500);
+            } else {
+                errorDiv.textContent = d2.message || '设置失败'; errorDiv.style.display = 'block';
+            }
         }
     } catch(e) { errorDiv.textContent = '网络错误'; errorDiv.style.display = 'block'; }
     finally { btn.disabled = false; btn.innerHTML = '确认'; }
@@ -1105,25 +1425,21 @@ async function confirmUsername() {
 window.confirmUsername = confirmUsername;
 
 // === 轮询 cookie 状态(检测 needs_relogin) ===
+// 适配新结构:右上角"用户菜单"显示用户名,独立的"Cookie 失效条"显示失效提示(互不重叠)
 async function checkCookieHealth() {
     try {
         var r = await fetch('/login/status');
         var d = await r.json();
-        var badge = document.getElementById('headerCookieBadge');
-        var pill = document.getElementById('headerUserPill');
+        var cookieBadge = document.getElementById('headerCookieBadge');
         var nameEl = document.getElementById('headerUserName');
         if (d.needs_relogin) {
-            showReloginBanner(d.relogin_reason || '登录已过期');
-            if (badge) badge.style.display = 'inline-flex';
-            if (pill) pill.style.display = 'none';
+            // 显示 cookie 失效条
+            if (cookieBadge) cookieBadge.style.display = 'inline-flex';
+            if (nameEl) nameEl.textContent = '登录已过期';
         } else {
-            hideReloginBanner();
-            if (badge) badge.style.display = 'none';
-            if (pill && d.user_name) {
-                nameEl.textContent = d.user_name;
-                pill.style.display = 'inline-flex';
-            } else if (pill) {
-                pill.style.display = 'none';
+            if (cookieBadge) cookieBadge.style.display = 'none';
+            if (nameEl) {
+                nameEl.textContent = d.user_name || '未登录';
             }
         }
     } catch (e) {}
@@ -1212,7 +1528,7 @@ function startProgressPoll() {
             if (d.mode === 'browser' && currentMode !== 'browser') setMode('browser');
             if (d.mode === 'api' && d.is_running && currentMode !== 'api') setMode('api');
             var bk = d.book_name || d.current_book || '';
-            document.getElementById('progressBook').textContent = bk ? '\uD83D\uDCD6 ' + bk : '';
+            document.getElementById('progressBook').textContent = bk ? bk : '';
             if (d.is_running) {
                 simRunning = true;
                 notRunningCount = 0;
@@ -1305,8 +1621,26 @@ function refreshWeeklyStatus() {
 }
 window.refreshWeeklyStatus = refreshWeeklyStatus;
 
+// === 每周奖励「设置」按钮:展开/收起 weeklySettingsPanel ===
+function toggleWeeklySettings(ev) {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+    var panel = document.getElementById('weeklySettingsPanel');
+    if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+window.toggleWeeklySettings = toggleWeeklySettings;
+
 // === 阅读统计刷新 ===
 function refreshStatistics() {
+    // 关键:空用户时(刚清空账号)前端不渲染"幽灵统计"
+    // 数据本身保留在后端,等用户重新登录后自动恢复
+    if (window._hasUsers === false) {
+        var emptyHtml = '<span class="stat-unit" style="color:var(--text-3);font-size:12px">—</span>';
+        ['statToday', 'statWeek', 'statTotal'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.innerHTML = emptyHtml;
+        });
+        return;
+    }
     fetch('/statistics').then(function(r){ return r.json(); }).then(function(d) {
         if (!d || d.error) return;
         function setStat(prefix, fmt) {
@@ -1367,31 +1701,32 @@ function refreshHeatmap() {
     if (!wrap) return;
     var weeks = 9;
     var today = new Date().toISOString().slice(0, 10);
+    // 关键:空用户时不渲染历史热力图(数据本身保留在后端,用户重新登录后自动恢复)
+    if (window._hasUsers === false) {
+        wrap.innerHTML = '<div class="heatmap-loading">暂无用户,登录后查看阅读热力图</div>';
+        return;
+    }
     fetch('/api/heatmap?weeks=' + weeks).then(function(r){ return r.json(); }).then(function(d) {
         if (!d || d.error) { wrap.innerHTML = '<div class="heatmap-loading">热力图加载失败</div>'; return; }
         if (!d.cells || !d.cells.length) { wrap.innerHTML = '<div class="heatmap-loading">暂无阅读数据</div>'; return; }
 
-        // 月份标签:用 grid-column span 让 label 横跨该月所有列,精确对齐
-        // 前端自己算 span(后端 span 字段可能未生效),用下一个 label 的 col 推算
-        // 关键:months 容器总宽 = grid 容器总宽(label 跨度刚好填满,无溢出)
+        // 月份标签:grid-column span 跨多列对齐下方方格(无 weekday 偏移)
         var monthCells = [];
         var labels = (d.month_labels || []).filter(function(m){ return m.col >= 0 && m.col < weeks; });
         labels.forEach(function(m, i) {
             var start = m.col + 1; // grid 1-indexed
-            // 优先用后端 span(重启后),否则前端算:下个 label 起点 - 当前 col
             var span = m.span && m.span > 0
                 ? m.span
                 : (i + 1 < labels.length ? labels[i + 1].col - m.col : weeks - m.col);
             span = Math.max(1, span);
             var end = start + span;
-            // 超出 weeks 时裁剪(避免最后 label 溢出)
             if (end - 1 > weeks) end = weeks + 1;
             monthCells.push('<div style="grid-column:' + start + '/' + end + '">' + m.name + '</div>');
         });
         var monthsHtml = '<div class="heatmap-months" style="--hm-weeks:' + weeks + '">' + monthCells.join('') + '</div>';
 
-        // 主网格
-        var gridHtml = '<div class="heatmap-grid" style="--hm-weeks:' + weeks + '">';
+        // 主网格:9 个 col 横向排列(无 weekday-label)
+        var gridHtml = '<div class="heatmap-grid" style="--hm-weeks:' + weeks + '"><div class="heatmap-cols">';
         var totalMins = 0, activeDays = 0;
         d.cells.forEach(function(col) {
             gridHtml += '<div class="heatmap-col">';
@@ -1408,7 +1743,7 @@ function refreshHeatmap() {
             });
             gridHtml += '</div>';
         });
-        gridHtml += '</div>';
+        gridHtml += '</div></div>';
 
         // 总分钟数 格式化
         var totalMinsRounded = Math.round(totalMins);
@@ -1423,18 +1758,18 @@ function refreshHeatmap() {
             '<strong>' + totalStr + '</strong> 总阅读' +
         '</div>';
 
-        // 右侧图例胶囊:每色块带具体区间,自定义 tooltip(去掉原生 title 避免双弹)
+        // 右侧图例:纯色块,无文字说明
         var legendItems = [
-            { cls: '',      label: '未打卡',     title: '0 分钟(未打卡)' },
-            { cls: 'lvl-1', label: '< 30 分钟',  title: '1 - 29 分钟' },
-            { cls: 'lvl-2', label: '30-60 分钟', title: '30 - 59 分钟' },
-            { cls: 'lvl-3', label: '1-1.5 小时', title: '60 - 89 分钟' },
-            { cls: 'lvl-4', label: '1.5-2 小时', title: '90 - 119 分钟' },
-            { cls: 'lvl-5', label: '> 2 小时',   title: '>= 120 分钟' }
+            { cls: '',      title: '0 分钟(未打卡)' },
+            { cls: 'lvl-1', title: '1 - 29 分钟' },
+            { cls: 'lvl-2', title: '30 - 59 分钟' },
+            { cls: 'lvl-3', title: '60 - 89 分钟' },
+            { cls: 'lvl-4', title: '90 - 119 分钟' },
+            { cls: 'lvl-5', title: '>= 120 分钟' }
         ];
         var legendHtml = '<div class="heatmap-legend">' +
             legendItems.map(function(it) {
-                return '<div class="heatmap-cell ' + it.cls + '" data-legend-title="' + it.title + '"></div>';
+                return '<span class="heatmap-cell ' + it.cls + '" data-legend-title="' + it.title + '"></span>';
             }).join('') +
         '</div>';
 
@@ -1480,6 +1815,72 @@ function refreshHeatmap() {
     }).catch(function(e) { wrap.innerHTML = '<div class="heatmap-loading">热力图加载失败</div>'; });
 }
 window.refreshHeatmap = refreshHeatmap;
+
+// === 定时/守护 互斥单选 ===
+function selectRunMode(mode) {
+    var sch = document.getElementById('modeSchedule');
+    var dae = document.getElementById('modeDaemon');
+    var sp = document.getElementById('schedulePanel');
+    var dp = document.getElementById('daemonPanel');
+    var sH = document.getElementById('scheduleEnabled');
+    var dH = document.getElementById('daemonEnabled');
+    [sch, dae].forEach(function(el) { el && el.classList.remove('active'); });
+    sp && sp.classList.remove('open');
+    dp && dp.classList.remove('open');
+    if (mode === 'schedule') {
+        if (sch) sch.classList.add('active');
+        if (sp) sp.classList.add('open');
+        if (sH) sH.value = 'true';
+        if (dH) dH.value = 'false';
+    } else if (mode === 'daemon') {
+        if (dae) dae.classList.add('active');
+        if (dp) dp.classList.add('open');
+        if (sH) sH.value = 'false';
+        if (dH) dH.value = 'true';
+    } else {
+        // 都关闭 = 手动模式(无需 active 卡片)
+        if (sH) sH.value = 'false';
+        if (dH) dH.value = 'false';
+    }
+}
+window.selectRunMode = selectRunMode;
+
+// === 通知通道卡片:toggle 联动 + 总开关联动 ===
+// === 通知通道 ch-row 联动:总开关联动 + 单个 toggle 联动 row 输入灰态 + 更新 group count ===
+function syncChannelRowState(row) {
+    var toggle = row.querySelector('.channel-toggle');
+    if (!toggle) return;
+    var enabled = toggle.checked;
+    row.querySelectorAll('input, select, textarea').forEach(function(el) {
+        el.disabled = !enabled;
+    });
+}
+function updateNotifyGroupCount(cat) {
+    var rows = cat.querySelectorAll('.ch-row');
+    var enabled = 0;
+    rows.forEach(function(r) {
+        var t = r.querySelector('.channel-toggle');
+        if (t && t.checked) enabled++;
+    });
+    var counter = cat.querySelector('.ngc-count');
+    if (counter) counter.textContent = enabled + '/' + rows.length;
+}
+function applyNotificationGlobal() {
+    var enabled = document.getElementById('notificationEnabled').checked;
+    document.querySelectorAll('.notify-cat').forEach(function(cat) {
+        if (!enabled) {
+            cat.classList.add('muted');
+        } else {
+            cat.classList.remove('muted');
+        }
+        // 每个 row 同步
+        cat.querySelectorAll('.ch-row').forEach(function(row) {
+            syncChannelRowState(row);
+        });
+        updateNotifyGroupCount(cat);
+    });
+}
+window.applyNotificationGlobal = applyNotificationGlobal;
 
 // === 退出登录 ===
 function doLogout() {
@@ -1544,7 +1945,7 @@ function syncTimes() { document.getElementById('scheduleTimes').value = JSON.str
 function renderTimes() {
     var c = document.getElementById('timeSlots');
     c.innerHTML = scheduleTimes.map(function(t, i) {
-        return '<div style="display:flex;gap:8px;align-items:center"><input type="time" value="' + t + '" onchange="updateTime(' + i + ',this.value)" style="width:140px;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;color:var(--text-1);color-scheme:light;font-size:.85rem"><button type="button" class="del-btn" onclick="removeTime(' + i + ')">删除</button></div>';
+        return '<div style="display:flex;gap:8px;align-items:center"><input type="time" value="' + t + '" onchange="updateTime(' + i + ',this.value)" style="width:140px;color-scheme:light"><button type="button" class="del-btn" onclick="removeTime(' + i + ')">删除</button></div>';
     }).join('');
     syncTimes();
 }
@@ -1552,7 +1953,7 @@ window.addTime = addTime;
 window.removeTime = removeTime;
 window.updateTime = updateTime;
 
-// === 书籍管理 ===
+// === 书籍管理 - 横滚卡片布局(去掉折叠) ===
 function addBook() { books.push({name: '', book_id: '', chapters: []}); renderBooks(); }
 function removeBook(i) { books.splice(i, 1); renderBooks(); }
 function updateBook(i, f, v) { books[i][f] = v; syncBooks(); }
@@ -1560,12 +1961,85 @@ function syncBooks() { document.getElementById('booksJson').value = JSON.stringi
 function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function renderBooks() {
     var c = document.getElementById('bookList');
-    if (!books.length) { c.innerHTML = '<div class="empty-state"><div class="empty-icon">&#x1F4DA;</div><div class="empty-text">暂无书籍，点击添加或从书架导入</div></div>'; syncBooks(); return; }
-    c.innerHTML = books.map(function(b, bi) {
+    if (!books.length) { c.innerHTML = '<div class="empty-state" style="padding:8px"><div class="empty-text">暂无书籍,可手动添加或从书架导入</div></div>'; syncBooks(); return; }
+    c.innerHTML = '<div class="book-grid">' + books.map(function(b, bi) {
         var name = esc(b.name || ''), bid = esc(b.book_id || '');
-        return '<div class="book-item"><div class="book-header"><span class="book-title">书籍 ' + (bi + 1) + '</span><button type="button" class="del-btn" onclick="removeBook(' + bi + ')">删除</button></div><div class="form-group"><label>名称</label><div style="display:flex;gap:6px;align-items:center"><input type="text" value="' + name + '" onchange="updateBook(' + bi + ',\'name\',this.value)" placeholder="输入书名" style="flex:1"><button type="button" class="btn btn-secondary btn-sm" onclick="openSearchBookModal(' + bi + ')">搜索</button></div></div><div class="form-group"><label>书籍 ID</label><input type="text" value="' + bid + '" id="bookIdInput' + bi + '" onchange="updateBook(' + bi + ',\'book_id\',this.value)" placeholder="点上面搜索自动填入"></div></div>';
-    }).join('');
+        var coverHtml = bid
+            ? '<div class="book-card-cover" data-bid="' + esc(bid) + '"><div class="cover-loading">加载封面中…</div><span class="book-card-idx">' + (bi + 1) + '</span><button type="button" class="cover-refresh" onclick="refreshBookCover(\'' + esc(bid) + '\')" title="重新截图封面">↻</button></div>'
+            : '<div class="book-card-cover"><div class="cover-fallback">未填 book_id<br>无法获取封面</div><span class="book-card-idx">' + (bi + 1) + '</span></div>';
+        return '<div class="book-card" data-bid="' + esc(bid) + '">' +
+            coverHtml +
+            '<div class="book-card-body">' +
+                '<div class="book-card-name"><input type="text" value="' + name + '" onchange="updateBook(' + bi + ',\'name\',this.value)" placeholder="输入书名"></div>' +
+                '<div class="book-card-id" title="' + esc(bid) + '">' + esc(bid || '未填 book_id') + '</div>' +
+                '<div class="book-card-progress" data-bid="' + esc(bid) + '">' +
+                    '<span class="progress-dot"></span>' +
+                    '<span class="progress-text">尚未阅读</span>' +
+                '</div>' +
+            '</div>' +
+            '<div class="book-card-footer">' +
+                '<button type="button" class="book-card-del" onclick="removeBook(' + bi + ')">删除</button>' +
+            '</div>' +
+        '</div>';
+    }).join('') + '</div>';
     syncBooks();
+    // 异步加载封面 + 章节进度
+    books.forEach(function(b, bi) {
+        if (b.book_id) {
+            loadBookCover(b.book_id);
+            loadBookProgress(b.book_id);
+        }
+    });
+}
+
+// 加载书籍封面(后端 /api/cover-screenshot 自带磁盘缓存,前端只管 <img>)
+function loadBookCover(book_id) {
+    var cover = document.querySelector('.book-card[data-bid="' + book_id + '"] .book-card-cover');
+    if (!cover) return;
+    var idxHtml = '<span class="book-card-idx">' + (cover.querySelector('.book-card-idx') ? cover.querySelector('.book-card-idx').textContent : '') + '</span>';
+    var onErr = "this.parentNode.innerHTML=this.parentNode.querySelector('.book-card-idx').outerHTML+'<div class=cover-fallback>封面加载失败</div>'";
+    // 截图端点(命中磁盘缓存秒返,未命中走浏览器截图后写盘)
+    cover.innerHTML = idxHtml +
+        '<img src="/api/cover-screenshot?book_id=' + encodeURIComponent(book_id) + '" alt="cover" onerror="' + onErr + '">';
+}
+
+// 刷新单本书封面:删磁盘缓存 + 重截图
+function refreshBookCover(book_id) {
+    var cover = document.querySelector('.book-card[data-bid="' + book_id + '"] .book-card-cover');
+    if (!cover) return;
+    cover.innerHTML = '<div class="cover-fallback">截图中…</div>';
+    fetch('/api/cover-screenshot?book_id=' + encodeURIComponent(book_id), { method: 'DELETE' })
+        .then(function() {
+            // 删缓存后再调 GET 触发重新截图
+            var idxHtml = '<span class="book-card-idx">' + (cover.querySelector('.book-card-idx') ? cover.querySelector('.book-card-idx').textContent : (cover.dataset.idx || '')) + '</span>';
+            var onErr = "this.parentNode.innerHTML=this.parentNode.querySelector('.book-card-idx').outerHTML+'<div class=cover-fallback>封面加载失败</div>'";
+            cover.innerHTML = idxHtml +
+                '<img src="/api/cover-screenshot?book_id=' + encodeURIComponent(book_id) + '&t=' + Date.now() + '" alt="cover" onerror="' + onErr + '">';
+        });
+}
+
+// 加载书籍阅读进度
+function loadBookProgress(book_id) {
+    fetch('/api/book-progress?book_id=' + encodeURIComponent(book_id))
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (!d || !d.book_id) return;
+            var el = document.querySelector('.book-card-progress[data-bid="' + book_id + '"]');
+            if (!el) return;
+            var ci = d.ci || 0;
+            var total = d.chapters_total || 0;
+            var text = '';
+            if (ci > 0) {
+                text = total > 0 ? ('上次阅读到第 ' + ci + ' 章 / 共 ' + total + ' 章') : ('上次阅读到第 ' + ci + ' 章');
+            } else if (total > 0) {
+                text = '共 ' + total + ' 章,尚未开始';
+            } else {
+                text = '尚未阅读';
+            }
+            var textEl = el.querySelector('.progress-text');
+            if (textEl) textEl.textContent = text;
+        })
+        .catch(function() {});
 }
 window.addBook = addBook;
 window.removeBook = removeBook;
@@ -1837,14 +2311,11 @@ document.addEventListener('DOMContentLoaded', function() {
     if (s) s.addEventListener('input', function() { renderShelfImportList(this.value); });
 });
 
-// === 添加用户 ===
+// === 添加用户(走自定义弹窗,不再用浏览器原生 prompt) ===
+// 后端 /users/{name}/login 会自动把用户加进 config.users 并启动扫码流程
+// 不再需要"先 addUser 再 login"的两步操作
 function showAddUser() {
-    var name = prompt('输入新用户名:');
-    if (!name) return;
-    fetch('/users', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: name})})
-        .then(function(r) { return r.json(); })
-        .then(function(d) { showToast(d.message, d.status === 'ok' ? 'success' : 'error'); loadUsers(); })
-        .catch(function(e) { showToast('添加失败: ' + e, 'error'); });
+    openUsernameModal('add');
 }
 window.showAddUser = showAddUser;
 
@@ -1861,8 +2332,8 @@ function init() {
     refreshProgress();
     updateLoginButtons();
     refreshWeeklyStatus();
-    refreshStatistics();
-    refreshHeatmap();
+    // refreshStatistics / refreshHeatmap 移到 loadUsers 完成后再调
+    // (loadUsers 会设置 window._hasUsers,否则 stats/heatmap 会先按"有用户"渲染一次再切换占位,闪一下)
     // 轮询 cookie 健康(30s 一次),失效时显示顶部红色横幅
     checkCookieHealth();
     setInterval(checkCookieHealth, 30000);
@@ -1874,6 +2345,26 @@ function init() {
     // 监听 weeklyRewardToggle 关闭时刷新状态
     var wToggle = document.getElementById('weeklyRewardToggle');
     if (wToggle) wToggle.addEventListener('change', refreshWeeklyStatus);
+    // 通知 channel 联动:每个 channel 的 toggle 改变 → 联动 body 灰态 + 更新 group 计数
+    document.querySelectorAll('.ch-row').forEach(function(row) {
+        var toggle = row.querySelector('.channel-toggle');
+        if (toggle) {
+            toggle.addEventListener('change', function() {
+                syncChannelRowState(row);
+                var cat = row.closest('.notify-cat');
+                if (cat) updateNotifyGroupCount(cat);
+            });
+            syncChannelRowState(row);
+        }
+    });
+    // 初始化每个 group 的 count
+    document.querySelectorAll('.notify-cat').forEach(function(cat) {
+        updateNotifyGroupCount(cat);
+    });
+    // 通知总开关
+    var notifGlobal = document.getElementById('notificationEnabled');
+    if (notifGlobal) notifGlobal.addEventListener('change', applyNotificationGlobal);
+    applyNotificationGlobal();
 }
 
 function updateLoginButtons() {
@@ -1915,13 +2406,22 @@ document.getElementById('configForm').addEventListener('submit', async function(
     var btn = document.getElementById('btnSave');
     var fd = new FormData(this);
     syncBooks(); syncTimes();
+    // 合并目标时长 min/max(后端需要 "30-60" 这种字符串)
+    var tdMin = document.getElementById('target_duration_min').value;
+    var tdMax = document.getElementById('target_duration_max').value;
+    var tdMerged = (tdMin && tdMax) ? (tdMin + '-' + tdMax) : (fd.get('target_duration') || '30-60');
+    // 合并阅读间隔 min/max
+    var riMin = document.getElementById('reading_interval_min').value;
+    var riMax = document.getElementById('reading_interval_max').value;
+    var riMerged = (riMin && riMax) ? (riMin + '-' + riMax) : (fd.get('reading_interval') || '10-20');
     var data = {
-        target_duration: fd.get('target_duration'),
+        target_duration: tdMerged,
         reading_mode: fd.get('reading_mode'),
-        reading_interval: fd.get('reading_interval'),
-        schedule_enabled: fd.has('schedule_enabled'),
+        reading_interval: riMerged,
+        // 定时/守护互斥:用 hidden 字段的实际值(由 selectRunMode 维护)
+        schedule_enabled: document.getElementById('scheduleEnabled').value === 'true',
         schedule_times: scheduleTimes,
-        daemon_enabled: fd.has('daemon_enabled'),
+        daemon_enabled: document.getElementById('daemonEnabled').value === 'true',
         daemon_session_interval: fd.get('daemon_session_interval'),
         daemon_max_daily: parseInt(fd.get('daemon_max_daily') || 12),
         network_timeout: parseInt(fd.get('network_timeout') || 30),

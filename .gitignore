@@ -16,3 +16,5 @@ ENV/
 *.log
 shared/
 docker-compose.yaml
+docker-compose.yml
+.opencode/

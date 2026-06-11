@@ -40,6 +40,15 @@ class UserSession:
                 message="请先登录"
             )
 
+        # 关键:API 模式前先远程 ping 一下 wr_skey,避免 wr_skey 已失效导致 -2012
+        # (-2012 出现在主循环中途很难看,前置 ping 失败直接转 need_login)
+        if not await self._precheck_credentials(credentials):
+            return SessionResult(
+                user_name=self.user_name,
+                status="need_login",
+                message="登录已失效,请重新扫码(API 模式前置检测失败,避免运行中 -2012 中断)"
+            )
+
         reading_overrides = self.user_config.get("reading_overrides", {})
         target_duration = reading_overrides.get(
             "target_duration",
@@ -53,7 +62,7 @@ class UserSession:
         logger.info(f"开始阅读会话: {self.user_name}, 时长: {target_duration}, 模式: {mode}")
 
         try:
-            self.api_reader = ApiReader(credentials)
+            self.api_reader = ApiReader(credentials, user_name=self.user_name)
             result = await self.api_reader.start_reading(on_progress=progress_callback)
 
             real_name = self.user_config.get("display_name", "") or credentials.user_name or self.user_name
@@ -73,6 +82,68 @@ class UserSession:
                 status="error",
                 message=str(e)
             )
+
+    async def _precheck_credentials(self, credentials: UserCredentials, timeout: float = 8.0) -> bool:
+        """API 模式前置检测:用 wr_skey + wr_vid 发一个轻量请求,确认还活着。
+
+        返回:
+          True  → 凭证有效,可以进入主循环
+          False → 凭证失效,需要重新登录(避免主循环中途 -2012 中断)
+
+        检测策略(关键修复):
+          之前调 /web/shelf 会得到 200,但真实阅读接口 /web/book/read 会 -2012。
+          原因:/web/shelf 是 SPA 路由,cookie scope 容差大;/web/book/read 是真实后端 API。
+          现在改用跟主阅读相同的接口路径 + 空 payload,直接验证后端 API 的 cookie scope。
+        """
+        try:
+            import httpx
+            cookies = {
+                "wr_skey": credentials.wr_skey,
+                "wr_vid": credentials.wr_vid,
+            }
+            user_info = credentials.user_info if isinstance(credentials.user_info, dict) else {}
+            for k, v in (user_info.get("cookies") or {}).items():
+                if k in ("wr_gid", "wr_fp", "wr_ql", "wr_rt") and v:
+                    cookies[k] = v
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://weread.qq.com/web/reader",
+                "Accept": "application/json, text/plain, */*",
+            }
+            # 用和真实阅读完全相同的接口路径 /web/book/read(关键修复)
+            # 空 payload → 后端会判 -2012/参数错,但 -2012 表示 cookie scope 失效
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+                resp = await client.post(
+                    "https://weread.qq.com/web/book/read",
+                    headers=headers,
+                    cookies=cookies,
+                    json={"data": {}},  # 空数据 → 后端必返回错误,但能从 errCode 判断 cookie 状态
+                )
+            # 200 = 凭证有效(即使 data 空也能正常处理)
+            if resp.status_code == 200:
+                logger.info(f"[precheck] {self.user_name} 凭证有效 (200)")
+                return True
+            # 关键:检查 errCode=-2012(登录超时)
+            try:
+                body = resp.json()
+                if isinstance(body, dict):
+                    err = body.get("errCode") or body.get("errcode") or body.get("code")
+                    if err in (-2012, "-2012", 2012, "2012"):
+                        logger.warning(f"[precheck] {self.user_name} 凭证已失效 (errCode={err}, 真实阅读接口确认)")
+                        return False
+                    # 其他 errCode(参数错之类)→ 凭证本身是活的,只是 payload 问题
+                    logger.debug(f"[precheck] {self.user_name} 非 -2012 错误 (errCode={err}),凭证视为有效")
+                    return True
+            except Exception:
+                pass
+            if resp.status_code in (401, 403):
+                logger.warning(f"[precheck] {self.user_name} 凭证已失效 (HTTP {resp.status_code})")
+                return False
+            logger.debug(f"[precheck] {self.user_name} 状态码 {resp.status_code} 视为未知,放行")
+            return True
+        except Exception as e:
+            logger.debug(f"[precheck] {self.user_name} 检测异常(放行): {e}")
+            return True
 
 
 class SessionManager:
@@ -131,6 +202,10 @@ class SessionManager:
             if api.should_stop and api._fail_reason:
                 self._has_failed = True
                 self._fail_reason = api._fail_reason
+                # 关键修复:把失败原因推到前端 logConsole(避免前端看不到失败详情)
+                self.add_log(f"❌ API失败: {api._fail_reason}")
+                # 同时记录到容器日志(双保险)
+                logger.warning(f"[session_manager] API失败原因: {api._fail_reason}")
 
     async def _run_user_with_semaphore(self, user_config: Dict[str, Any]) -> SessionResult:
         """使用信号量运行用户会话"""
@@ -193,6 +268,11 @@ class SessionManager:
             status_str = "✅ 成功" if r.status == "completed" else f"❌ 失败: {r.message}"
             self.add_log(f"用户 {r.user_name}: {status_str}")
 
+        # 关键修复:session 结束如果 _fail_reason 还在,推到前端 + 容器日志
+        if self._fail_reason and not any("❌" in log.get("msg", "") for log in self._logs):
+            self.add_log(f"❌ 失败原因: {self._fail_reason}")
+            logger.warning(f"[session_manager] 失败原因: {self._fail_reason}")
+
         self._is_running = False
         self._progress = {"status": "idle"}
         self.add_log("阅读任务全部完成")
@@ -201,17 +281,57 @@ class SessionManager:
         return session_results
 
     async def _run_single_user(self) -> SessionResult:
-        """运行单用户会话（使用默认 reading 配置）"""
-        # 自动找第一个有有效凭证的用户(Web UI 登录态可能挂在 Gavi,API 模式却去找 default)
+        """运行单用户会话(使用默认 reading 配置)
+
+        查找顺序:
+          1) config.users 里第一个有有效凭证的 name(优先)
+          2) 磁盘上 shared/credentials/ 里第一个有有效凭证的目录
+          3) config.users 里第一个(即便凭证失效,保留名字)
+          4) 真的没有任何用户 → 返回 need_login,**不**自动创建 default 文件夹
+             (用户需在 Web UI 扫码登录,登录成功后才会创建用户目录)
+
+        关键:不允许在 config.users 空时自动用 "default" 跑阅读
+        历史坑:会触发 capture_and_save_curl / credential_manager.save 创建 default/ 目录
+        """
         from src.cookie_manager import cookie_manager
         from src.credential_manager import credential_manager
-        user_name = "default"
-        for candidate in cookie_manager.get_all_valid_users():
-            if credential_manager.is_valid(candidate):
-                user_name = candidate
-                logger.info(f"单用户模式: 使用凭证 {user_name} (default 不可用)")
-                break
-        return await UserSession({"name": user_name}).execute(self._progress_callback)
+
+        # 1) config 优先(避免 fallback 覆盖)
+        config_users = config.get_users()  # 已去重
+        if config_users:
+            for u in config_users:
+                name = u.get("name", "")
+                if name and credential_manager.is_valid(name):
+                    logger.info(f"单用户模式: 使用 config 里的有效用户 {name}")
+                    return await UserSession({"name": name}).execute(self._progress_callback)
+            # config 有用户但凭证都失效,记住第一个名字兜底
+            fallback_name = config_users[0].get("name", "default")
+            if credential_manager.is_valid(fallback_name):
+                logger.info(f"单用户模式: 使用 config 里第一个有凭证的用户 {fallback_name}")
+                return await UserSession({"name": fallback_name}).execute(self._progress_callback)
+            logger.warning(
+                f"单用户模式: config 有用户 {fallback_name} 但凭证失效,"
+                f"先保留该名字不重建 default(避免覆盖原始用户名)"
+            )
+            return await UserSession({"name": fallback_name}).execute(self._progress_callback)
+
+        # 2) config 空,看磁盘目录
+        disk_valid = cookie_manager.get_all_valid_users()
+        if disk_valid:
+            user_name = disk_valid[0]
+            logger.info(f"单用户模式: config 空,从磁盘找到有效用户 {user_name}")
+            return await UserSession({"name": user_name}).execute(self._progress_callback)
+
+        # 3) 真的没有用户 → need_login,不再自动创建 default 文件夹
+        logger.info(
+            "单用户模式: config.users 为空且磁盘无有效用户,"
+            "等待用户在 Web UI 扫码登录后才会创建用户目录"
+        )
+        return SessionResult(
+            user_name="",
+            status="need_login",
+            message="暂无用户,请在 Web UI 添加用户后扫码登录",
+        )
 
     async def _send_summary_notification(self, results: List[SessionResult]):
         """发送多用户汇总通知"""

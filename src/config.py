@@ -30,9 +30,43 @@ class Config:
             defaults = self._get_default_config()
             self._deep_merge(defaults, loaded)
             self._config = defaults
+            # 老数据修复:config.yaml 里可能有同名重复用户,启动时去重
+            self._dedupe_users_on_load()
         else:
             self._config = self._get_default_config()
             self.save()
+
+    def _dedupe_users_on_load(self):
+        """启动时清理 config.yaml 里的同名重复用户记录。
+
+        保留第一次出现的,后续同名记录删掉(避免 '两个 test1 删一个剩下另一个还是 test1' 的脏状态)。
+        修复完写回磁盘(只在真的有重复时才写)。
+        """
+        try:
+            users = self._config.get("users") or []
+            if not isinstance(users, list):
+                return
+            seen: set = set()
+            deduped: List[Dict[str, Any]] = []
+            removed = 0
+            for u in users:
+                if not isinstance(u, dict):
+                    continue
+                name = u.get("name", "")
+                if not name or name in seen:
+                    removed += 1
+                    continue
+                seen.add(name)
+                deduped.append(u)
+            if removed > 0:
+                self._config["users"] = deduped
+                self.save()
+                import logging
+                logging.getLogger("src.config").warning(
+                    f"[config] 启动清理: 删除了 {removed} 条同名重复用户记录"
+                )
+        except Exception:
+            pass
 
     def _deep_merge(self, base: dict, override: dict):
         for k, v in override.items():
@@ -211,28 +245,57 @@ class Config:
         return deepcopy(self._config)
 
     def get_users(self) -> List[Dict[str, Any]]:
-        """获取用户列表"""
-        return self.get("users", [])
+        """获取用户列表(自动去重,按 name 字段保留第一次出现)。"""
+        raw = self.get("users", [])
+        seen: set = set()
+        out: List[Dict[str, Any]] = []
+        for u in raw:
+            n = u.get("name", "")
+            if not n or n in seen:
+                # 同名重复的旧脏数据,跳过
+                continue
+            seen.add(n)
+            out.append(u)
+        return out
 
     def add_user(self, user: Dict[str, Any]) -> bool:
-        """添加用户"""
+        """添加用户。
+
+        - name 为空 → 拒绝
+        - name 已存在 → 拒绝(返回 False),不静默添加重复记录
+        """
+        name = (user.get("name") or "").strip()
+        if not name:
+            return False
         users = self.get_users()
-        users.append(user)
+        if any(u.get("name") == name for u in users):
+            # 已存在同名用户,拒绝添加(避免你描述的两个 test1 死循环)
+            return False
+        new_user = {**user, "name": name}
+        users.append(new_user)
         self.set("users", users)
         self.save()
         return True
 
-    def remove_user(self, user_name: str) -> bool:
-        """移除用户"""
-        users = self.get_users()
-        users = [u for u in users if u.get("name") != user_name]
-        self.set("users", users)
-        self.save()
-        return True
+    def remove_user(self, user_name: str) -> int:
+        """移除用户。返回被删除的记录条数(可能>1,如果旧数据有同名重复)。"""
+        users_raw = self.get("users", [])  # 不走 get_users,免得去重掉要删的
+        kept = [u for u in users_raw if u.get("name") != user_name]
+        removed = len(users_raw) - len(kept)
+        if removed > 0:
+            self.set("users", kept)
+            self.save()
+        return removed
 
     def rename_user(self, old_name: str, new_name: str) -> bool:
-        """重命名用户"""
+        """重命名用户。重命名后 name 与其他用户冲突 → 拒绝。"""
+        new_name = (new_name or "").strip()
+        if not new_name:
+            return False
         users = self.get_users()
+        # 检查目标名是否已被占用
+        if any(u.get("name") == new_name for u in users) and new_name != old_name:
+            return False
         for u in users:
             if u.get("name") == old_name:
                 u["name"] = new_name
@@ -243,3 +306,17 @@ class Config:
 
 
 config = Config()
+
+# 早初始化 logger:任何模块 import config 后再 import utils.logger,就能拿到带 file handler 的 logger
+# (关键修复:之前 logger.setup 在 lifespan 里调用,但更早模块的 logger.info() 会先触发无 file handler 的 setup)
+try:
+    _log_file = config.get("log.file")
+    _log_level = config.get("log.level", "INFO")
+    if _log_file:
+        from src.utils.logger import logger as _logger
+        _logger.setup("WeReadGears", log_file=_log_file, level=_log_level)
+        import os as _os
+        _logger.info(f"📝 logger 早初始化完成: file={_log_file} level={_log_level} cwd={_os.getcwd()}")
+except Exception as _e:
+    import sys as _sys
+    print(f"logger 早初始化失败: {_e}", file=_sys.stderr)
