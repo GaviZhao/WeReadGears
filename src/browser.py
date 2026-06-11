@@ -1633,143 +1633,122 @@ class BrowserManager:
         except Exception:
             return False
 
-    async def fetch_chapter_info(self, book_id: str) -> Optional[Dict[str, Any]]:
-        """用 httpx 直接调 i.weread.qq.com/book/chapterInfos 拿章节列表。
+    async def _refresh_cookie_for_lazy_load(self) -> bool:
+        """懒加载章节时,401 后调 /web/login/renewal 刷 wr_skey,保存到 disk。
 
-        不用 Playwright fetch(避免 CORS 限制 / cookie 过期被丢弃)。
-        返回:{"bookId": str, "chapters": [...], "first_chapter_uid": str}
-        失败返回 None(网络/超时/未登录)。
+        跟 funnyzak/weread-bot 的 cookie refresh 路径对齐:
+          POST /web/login/renewal
+          body = {"rq": "/web/book/chapterInfos", "ql": true}
+          解析 Set-Cookie 拿新 wr_skey → 写回 cookie_manager
+        成功返回 True。
         """
-        # 优先从 disk 拿 wr_skey(避免 Playwright context 过期 cookie 被丢弃)
-        wr_skey = ""
-        wr_vid = ""
-        try:
-            from src.cookie_manager import cookie_manager
-            cookies = cookie_manager.load()
-            for c in cookies or []:
-                if c.get("name") == "wr_skey":
-                    wr_skey = c.get("value", "")
-                if c.get("name") == "wr_vid":
-                    wr_vid = c.get("value", "")
-        except Exception:
-            pass
-        if not wr_skey or not wr_vid:
-            try:
-                if self.context:
-                    ctx_cookies = await self.context.cookies()
-                    for c in ctx_cookies:
-                        if c.get("name") == "wr_skey":
-                            wr_skey = c.get("value", "")
-                        if c.get("name") == "wr_vid":
-                            wr_vid = c.get("value", "")
-            except Exception:
-                pass
-
-        if not wr_skey or not wr_vid:
-            logger.warning("fetch_chapter_info: 缺少 wr_skey/wr_vid")
-            return None
-
         try:
             import httpx
-            url = f"https://i.weread.qq.com/book/chapterInfos?bookIds={book_id}&synckeys=0"
+            from urllib.parse import quote
+            from src.cookie_manager import cookie_manager as _cm
+            url = "https://weread.qq.com/web/login/renewal"
             headers = {
                 "accept": "application/json, text/plain, */*",
                 "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "referer": f"https://weread.qq.com/web/reader/{book_id}",
+                "content-type": "application/json;charset=UTF-8",
+                "origin": "https://weread.qq.com",
+                "referer": "https://weread.qq.com/",
             }
-            cookies_dict = {"wr_skey": wr_skey, "wr_vid": wr_vid}
-            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-                resp = await client.get(url, headers=headers, cookies=cookies_dict)
-
+            cookies_dict = {}
+            for c in (_cm.load() or []):
+                if c.get("name") in ("wr_skey", "wr_vid") and c.get("value"):
+                    cookies_dict[c["name"]] = c["value"]
+            body = {"rq": quote("/web/book/chapterInfos", safe=""), "ql": True}
+            async with httpx.AsyncClient(timeout=10.0) as cli:
+                resp = await cli.post(url, headers=headers, cookies=cookies_dict, json=body)
             if resp.status_code != 200:
-                logger.warning(f"fetch_chapter_info: {book_id} 状态码 {resp.status_code} body[:200]={resp.text[:200]}")
-                return None
+                logger.warning(f"_refresh_cookie_for_lazy_load: renewal {resp.status_code}")
+                return False
+            # 优先用 response.cookies(httpx 自动解析 Set-Cookie)
+            new_skey = ""
+            new_vid = ""
+            for k, v in (resp.cookies or {}).items():
+                if k == "wr_skey" and v:
+                    new_skey = v
+                if k == "wr_vid" and v:
+                    new_vid = v
+            # 兜底:解析 Set-Cookie 头
+            if not new_skey:
+                for chunk in resp.headers.get("set-cookie", "").split(";"):
+                    if "wr_skey=" in chunk:
+                        new_skey = chunk.split("wr_skey=", 1)[1].strip()
+                    if "wr_vid=" in chunk:
+                        new_vid = chunk.split("wr_vid=", 1)[1].strip()
+            if not new_skey:
+                logger.warning("_refresh_cookie_for_lazy_load: renewal 响应无 wr_skey")
+                return False
+            # 写回 cookie_manager
             try:
-                data = resp.json()
+                from src.cookie_manager import UserCredentials
+                creds_list = _cm.load()
+                # 取当前用户名(从 context 或 user_name)
+                user_name = self._current_user or "default"
+                # 替换/追加
+                updated = False
+                for c in creds_list:
+                    if c.get("name") == "wr_skey":
+                        c["value"] = new_skey
+                        updated = True
+                if not updated:
+                    creds_list.append({"name": "wr_skey", "value": new_skey})
+                for c in creds_list:
+                    if c.get("name") == "wr_vid" and new_vid:
+                        c["value"] = new_vid
+                        updated = True
+                if not updated and new_vid:
+                    creds_list.append({"name": "wr_vid", "value": new_vid})
+                # 用 cookie_manager 写回(它有标准接口)
+                # 简化:用 user_data_manager 直接写 cookies.json
+                from src.user_data_manager import user_data_manager
+                user_dir = user_data_manager.get_user_dir(user_name)
+                cookies_file = user_dir / "cookies.json"
+                if cookies_file.exists():
+                    import json as _json
+                    with open(cookies_file, "r", encoding="utf-8") as f:
+                        cdata = _json.load(f)
+                    cdata["cookies"] = creds_list
+                    with open(cookies_file, "w", encoding="utf-8") as f:
+                        _json.dump(cdata, f, ensure_ascii=False, indent=2)
+                    logger.info(
+                        f"_refresh_cookie_for_lazy_load: 写回新 wr_skey ***{new_skey[-4:]} 到 {cookies_file.name}"
+                    )
+                return True
             except Exception as e:
-                logger.warning(f"fetch_chapter_info: 解析失败 {e}")
-                return None
-
-            items = None
-            if isinstance(data, dict):
-                if "data" in data and isinstance(data["data"], list):
-                    items = data["data"]
-                elif "results" in data and isinstance(data["results"], list):
-                    items = data["results"]
-                elif "chapters" in data and isinstance(data["chapters"], list):
-                    items = [{"bookId": book_id, "chapters": data["chapters"]}]
-            elif isinstance(data, list):
-                items = data
-
-            if not items:
-                logger.warning(f"fetch_chapter_info: {book_id} 响应无 items")
-                return None
-
-            target = None
-            for it in items:
-                if not isinstance(it, dict):
-                    continue
-                bid = it.get("bookId") or it.get("book_id") or it.get("bookid")
-                if str(bid) == str(book_id):
-                    target = it
-                    break
-            if target is None:
-                target = items[0]
-
-            chapters = target.get("chapters") or []
-            if not isinstance(chapters, list) or not chapters:
-                logger.warning(f"fetch_chapter_info: {book_id} 没有 chapters 字段")
-                return None
-
-            norm = []
-            for c in chapters:
-                if not isinstance(c, dict):
-                    continue
-                uid = c.get("chapterUid") or c.get("chapter_uid") or c.get("uid") or c.get("id")
-                if uid is None:
-                    continue
-                uid_str = str(uid)
-                idx = c.get("chapterIdx") or c.get("chapter_idx") or c.get("idx") or c.get("order") or 0
-                try:
-                    idx_int = int(idx)
-                except Exception:
-                    idx_int = 0
-                norm.append({
-                    "chapterUid": uid_str,
-                    "chapterIdx": idx_int,
-                    "title": c.get("title") or c.get("chapterTitle") or "",
-                })
-
-            if not norm:
-                logger.warning(f"fetch_chapter_info: {book_id} 规范化后无章节")
-                return None
-
-            norm.sort(key=lambda x: x["chapterIdx"])
-            first = norm[0]
-            logger.info(f"fetch_chapter_info: {book_id[:12]} 拿到 {len(norm)} 章,首章 c={first['chapterUid'][:16]}")
-            return {
-                "bookId": book_id,
-                "chapters": norm,
-                "first_chapter_uid": first["chapterUid"],
-                "first_chapter_idx": first["chapterIdx"],
-            }
+                logger.warning(f"_refresh_cookie_for_lazy_load: 写回失败 {e}")
+                return False
         except Exception as e:
-            logger.warning(f"fetch_chapter_info 异常: {e}")
-            return None
+            logger.warning(f"_refresh_cookie_for_lazy_load 异常: {e}")
+            return False
+
     async def fetch_chapter_info_via_page(self, book_id: str, user_name: str = "default") -> Optional[Dict[str, Any]]:
-        """【新方案】用 Playwright 真实打开阅读视图,通过多路收集章节信息。
+        """【新方案 - 完全对齐 funnyzak/weread-bot】模拟浏览器访问书籍章节页,
+        通过截获腾讯的"阅读心跳" /web/book/read 的 curl,
+        从 curl body 的 `c` 字段提取真 chapter_id (chapterUid)。
 
-        关键修复(基于真实运行日志 - 关键发现):
-        - 真实接口路径:**/web/book/outline** 返回完整章节列表
-          (用户日志显示 200 https://weread.qq.com/web/book/outline)
-        - /web/book/chapter/e_N 是单章节内容接口(也含 chapterUid)
-        - chapterInfos 根本不在 reader 视图被调用
-        - 之前 page.on("response") 漏响应 → 改用 page.context.on("response")(context 级别更可靠)
+        模型对齐:
+          @dataclass class ChapterInfo:
+              chapter_id: str         ← 从 curl body 的 c 字段
+              chapter_index: Optional[int] = None  ← 从 curl body 的 ci 字段
 
-        多路收集策略:
-          ① goto 阅读视图(带 ?from=bookshelf_ba)
-          ② context.on("response") 截获 outline(完整章节列表) + chapter/e_N(单章节)
-          ③ 兜底:从 page DOM 读章节目录
+        策略:
+          ① goto 阅读视图(带 ?from=bookshelf_ba)触发首章 read 心跳
+          ② 截获 /web/book/read 的 POST body → 提取 c / ci
+          ③ 模拟点击"下一页"按钮触发下一章 read 心跳 → 累积 chapters
+          ④ 重复直到连续 N 次没新 c(到达末章)或累计到合理上限
+
+        优点:
+          - 不依赖任何可能改版的端点(/web/book/outline / chapterInfos 都可能失效)
+          - /web/book/read 是腾讯入账阅读时长的核心,会一直存在
+          - chapter_id 100% 是真 UID(腾讯自己读请求要拿这个值,不可能伪造)
+
+        缺点:
+          - 慢:每章要等一次点击 + 心跳(3-5s/章),200 章书 = 10+ 分钟
+          - 已经有 _book_chapter_cache 磁盘缓存,只首次慢,后续秒返
         """
         try:
             page = await self.get_page()
@@ -1784,160 +1763,67 @@ class BrowserManager:
             )
             return None
 
-        captured_chapters: Dict[str, Dict[str, Any]] = {}
-        captured_outline: List[Dict[str, Any]] = []
-        all_seen_urls: list = []
+        # === 单一方案:截获 /web/book/read 心跳,翻页累积 chapters ===
+        # 完全对齐 funnyzak/weread-bot:
+        #   ChapterInfo(chapter_id, chapter_index)
+        # chapter_id 来自 curl body 的 c 字段(腾讯用这个值入账,100% 真 UID)
+        captured_chapters: Dict[str, Dict[str, Any]] = {}  # key=chapter_id
+        captured_payloads: List[Dict[str, Any]] = []  # 原始 POST body 列表
 
-        async def _on_response(resp):
+        async def _on_request(request):
+            """截获 /web/book/read 的 POST body"""
             try:
-                url = resp.url
-                all_seen_urls.append((url[:150], resp.status))
-                if resp.status != 200:
+                if request.method != "POST":
                     return
-                # 关键:也截 /web/book/outline(它就是章节列表)
-                if not any(pat in url for pat in (
-                    "/web/book/chapter",
-                    "/web/book/outline",
-                    "/chapterInfo",
-                    "chapterInfos",
-                )):
+                if "/web/book/read" not in (request.url or ""):
+                    return
+                if not request.post_data:
                     return
                 try:
-                    body = await resp.json()
-                except Exception as e:
-                    # chapter/e_N 的内容接口是加密文本,非 JSON 是正常的
-                    # 但响应 body 里可能包含 chapterUid 元数据(微信读书加密格式)
-                    try:
-                        raw_text = await resp.text()
-                    except Exception:
-                        raw_text = ""
-                    logger.warning(
-                        f"🔍 截到非 JSON 响应 {url[:80]} status={resp.status} "
-                        f"text前150字符={repr(raw_text[:150])}"
-                    )
-                    # 尝试从文本里解析 chapterUid(微信读书加密格式通常包含元数据)
-                    import re
-                    m = re.search(r'"chapterUid"\s*:\s*"?(\w+)"?', raw_text)
-                    if not m:
-                        m = re.search(r'"chapterId"\s*:\s*"?(\w+)"?', raw_text)
-                    if m:
-                        uid_str = m.group(1)
-                        if uid_str not in captured_chapters:
-                            captured_chapters[uid_str] = {
-                                "chapterUid": uid_str,
-                                "chapterIdx": len(captured_chapters),
-                                "title": "",  # 加密文本里没有标题
-                            }
-                            logger.info(f"📌 从加密响应提取 chapterUid={uid_str[:16]}")
+                    import json as _json
+                    data = _json.loads(request.post_data)
+                except Exception:
                     return
-                # 诊断:每次都打 body 类型 + keys(打 INFO 级别,不再静默)
-                logger.info(
-                    f"🔍 截到响应 {url[:80]} status={resp.status} "
-                    f"type={type(body).__name__} "
-                    f"keys={list(body.keys())[:15] if isinstance(body, dict) else 'N/A'}"
-                )
-                if not isinstance(body, dict):
+                # 必须有 ps/pc 才算真 read 心跳
+                if not (data.get("ps") or data.get("pc")):
                     return
-
-                # === outline 路径 ===
-                if "/web/book/outline" in url:
-                    # 真实响应形如:{itemsArray: [...], bookId: ..., updated: [...], chapterCount: ...}
-                    # itemsArray 里每个元素形如:{itemId, itemType, title, ...}
-                    # itemType==1 是章节(还有目录/书签/笔记等其他类型)
-                    # 关键:outline 的 itemId 是前端展示用的章节 ID(可能是纯数字 1,2,3...),
-                    # **不是**腾讯 API 的真 chapterUid(24 字符 hex)。
-                    # 真 chapterUid 通常嵌套在 chapterInfo 子对象里,或者由
-                    # i.weread.qq.com/book/chapterInfos 单独接口返回。
-                    # 这里只接受看起来像真 UID 的值(< 6 字符或纯数字视为展示用,丢弃)
-                    items_raw = body.get("itemsArray") or body.get("chapters") or body.get("data") or body.get("results") or []
-                    logger.info(f"outline items_raw 数量={len(items_raw) if isinstance(items_raw, list) else 'N/A'}")
-                    if isinstance(items_raw, list):
-                        idx_counter = 0
-                        dropped_short_or_digit = 0
-                        for c in items_raw:
-                            if not isinstance(c, dict):
-                                continue
-                            # 只取 itemType==1 (普通章节)
-                            item_type = c.get("itemType") if "itemType" in c else None
-                            if item_type is not None and item_type != 1:
-                                continue
-                            # 优先级:嵌套真 UID > 顶层 chapterUid > itemId
-                            _nested_info = c.get("chapterInfo") if isinstance(c.get("chapterInfo"), dict) else None
-                            _nested_uid = (_nested_info or {}).get("chapterUid")
-                            _top_uid = c.get("chapterUid") or c.get("chapterId")
-                            _item_id = c.get("itemId")
-                            _real_uid = None
-                            for _candidate in (_nested_uid, _top_uid, _item_id):
-                                if _candidate and isinstance(_candidate, str):
-                                    if len(_candidate) >= 6 and not _candidate.isdigit():
-                                        _real_uid = _candidate
-                                        break
-                            if _real_uid is None:
-                                # 全部字段都是纯数字/< 6 字符 → 这是展示用,丢弃
-                                dropped_short_or_digit += 1
-                                idx_counter += 1
-                                continue
-                            uid_str = str(_real_uid)
-                            # 真实字段是 level 不是 chapterIdx;level=0 是顶级章节,1是子章节
-                            idx = (
-                                c.get("chapterIdx")
-                                or c.get("chapter_idx")
-                                or c.get("idx")
-                                or c.get("order")
-                                or c.get("level")
-                                or idx_counter
-                            )
-                            try:
-                                idx_int = int(idx)
-                            except Exception:
-                                idx_int = idx_counter
-                            title = (
-                                c.get("title")
-                                or c.get("chapterTitle")
-                                or c.get("name")
-                                or ""
-                            )
-                            captured_outline.append({
-                                "chapterUid": uid_str,
-                                "chapterIdx": idx_int,
-                                "title": title,
-                            })
-                            idx_counter += 1
-                        if dropped_short_or_digit:
-                            logger.info(
-                                f"outline 解析过滤掉 {dropped_short_or_digit} 个展示用 itemId "
-                                f"(< 6 字符或纯数字),保留 {len(captured_outline)} 个真 chapterUid"
-                            )
-                        logger.info(f"outline 解析后拿到 {len(captured_outline)} 个 itemType==1 章节")
+                # 只在 c 是当前 book_id 时接受(避免捕获到其他书的请求)
+                if str(data.get("b", "")) != str(book_id):
                     return
-
-                # === chapter/e_N 单章节路径 ===
-                uid = body.get("chapterUid") or body.get("chapter_uid") or body.get("uid") or body.get("chapterId") or body.get("chapter_id")
-                if not uid:
+                cid = str(data.get("c", "") or "").strip()
+                if not cid:
                     return
-                uid_str = str(uid)
-                idx = body.get("chapterIdx") or body.get("chapter_idx") or body.get("idx") or body.get("order") or 0
+                idx_val = data.get("ci", 0)
                 try:
-                    idx_int = int(idx)
+                    idx_int = int(idx_val) if idx_val is not None else 0
                 except Exception:
                     idx_int = 0
-                title = body.get("title") or body.get("chapterTitle") or body.get("name") or ""
-                if uid_str not in captured_chapters:
-                    captured_chapters[uid_str] = {
-                        "chapterUid": uid_str,
+                if cid not in captured_chapters:
+                    captured_chapters[cid] = {
+                        "chapterUid": cid,
                         "chapterIdx": idx_int,
-                        "title": title,
+                        "title": "",  # curl body 没带 title,留空
                     }
-                    logger.debug(f"截获 chapter 响应: uid={uid_str[:16]} idx={idx_int} title={title[:30]}")
+                    captured_payloads.append({
+                        "c": cid, "ci": idx_int,
+                        "b": data.get("b", ""),
+                        "ps": data.get("ps", ""),
+                        "pc": data.get("pc", ""),
+                        "appId": data.get("appId", ""),
+                    })
+                    logger.debug(
+                        f"📖 截获 /web/book/read 心跳: c={cid[:16]} ci={idx_int} "
+                        f"已累积 {len(captured_chapters)} 章"
+                    )
             except Exception:
                 pass
 
-        # 关键:用 context.on 而不是 page.on(context 级别更可靠,不会漏)
+        # 拦截器装到 context 级别(更稳,不会漏)
         listener_target = self.context if self.context else page
-        listener_target.on("response", _on_response)
+        listener_target.on("request", _on_request)
 
         try:
-            # ① goto ?from=bookshelf_ba 进阅读视图
+            # ① goto reader 页 → 触发首章 read 心跳
             try:
                 await page.goto(
                     f"https://weread.qq.com/web/reader/{book_id}?from=bookshelf_ba",
@@ -1956,278 +1842,69 @@ class BrowserManager:
                     logger.warning(f"fetch_chapter_info_via_page: 二次 goto 也失败 {e2}")
                     return None
 
-            # 等 10s 拿 outline + chapter 响应
-            for _ in range(20):
-                if captured_outline or len(captured_chapters) >= 2:
+            # ② 等首章 read 心跳
+            for _ in range(30):
+                if captured_chapters:
                     break
                 await page.wait_for_timeout(500)
+            if not captured_chapters:
+                logger.warning("fetch_chapter_info_via_page: 等 15s 仍无首章 read 心跳")
+                return None
 
-            # 如果还没拿到 outline,在 page 上下文里 fetch(用浏览器里的 cookie/referer,避免 404/401)
-            if not captured_outline:
-                logger.info("未截获 outline,在 page 里 fetch /web/book/outline")
+            # ③ 模拟翻页累积 chapters
+            # 上限:500 章(防一些超长书卡死,200-300 章主流)
+            MAX_CHAPTERS = 500
+            last_seen_cid = None
+            no_progress_count = 0
+            while len(captured_chapters) < MAX_CHAPTERS and no_progress_count < 3:
+                # 拿最新捕获的 c
+                latest_cid = list(captured_chapters.keys())[-1]
+                if latest_cid == last_seen_cid:
+                    no_progress_count += 1
+                else:
+                    no_progress_count = 0
+                    last_seen_cid = latest_cid
+
+                # 模拟点击页面右半部分触发翻页(read 心跳会带新 c)
                 try:
-                    # 用 page.evaluate 在浏览器内 fetch,带 SPA 该有的 referer/credentials
-                    result = await page.evaluate(
-                        """async (bookId) => {
-                            const resp = await fetch(`/web/book/outline?bookId=${bookId}`, {
-                                credentials: 'include',
-                                headers: { 'accept': 'application/json, text/plain, */*' }
-                            });
-                            const text = await resp.text();
-                            return { status: resp.status, body: text.slice(0, 5000) };
-                        }""",
-                        book_id,
-                    )
-                    status = result.get("status")
-                    body_text = result.get("body", "")
-                    logger.info(f"page 内 fetch outline status={status} body[:300]={body_text[:300]}")
-                    if status == 200:
-                        try:
-                            import json as _json
-                            body = _json.loads(body_text)
-                            items_raw = body.get("itemsArray") or body.get("chapters") or []
-                            if isinstance(items_raw, list):
-                                idx_counter = 0
-                                for c in items_raw:
-                                    if not isinstance(c, dict):
-                                        continue
-                                    item_type = c.get("itemType")
-                                    if item_type is not None and item_type != 1:
-                                        continue
-                                    # 关键:outline 的 itemId 是前端展示用的章节 ID(可能是纯数字 1,2,3...),
-                                    # **不是**腾讯 API 的真 chapterUid(24 字符 hex)。
-                                    # 真 chapterUid 通常嵌套在 chapterInfo 子对象里,或者由
-                                    # i.weread.qq.com/book/chapterInfos 单独接口返回。
-                                    # 这里只接受看起来像真 UID 的值(< 6 字符或纯数字视为展示用,丢弃)
-                                    _item_id = c.get("itemId")
-                                    _chapter_uid_nested = c.get("chapterUid") or c.get("chapterId")
-                                    _nested_info = c.get("chapterInfo") if isinstance(c.get("chapterInfo"), dict) else None
-                                    _nested_uid = (_nested_info or {}).get("chapterUid")
-
-                                    _real_uid = None
-                                    # 优先级:嵌套真 UID > 顶层 chapterUid (非纯数字) > itemId (非纯数字)
-                                    for _candidate in (_nested_uid, _chapter_uid_nested, _item_id):
-                                        if _candidate and isinstance(_candidate, str):
-                                            if len(_candidate) >= 6 and not _candidate.isdigit():
-                                                _real_uid = _candidate
-                                                break
-                                    if _real_uid is None:
-                                        # 全部字段都是纯数字/< 6 字符 → 这是展示用,丢弃
-                                        idx_counter += 1
-                                        continue
-                                    uid = _real_uid
-                                    idx = c.get("chapterIdx") or c.get("level") or idx_counter
-                                    try:
-                                        idx_int = int(idx)
-                                    except Exception:
-                                        idx_int = idx_counter
-                                    title = c.get("title") or c.get("chapterTitle") or ""
-                                    captured_outline.append({
-                                        "chapterUid": str(uid),
-                                        "chapterIdx": idx_int,
-                                        "title": title,
-                                    })
-                                    idx_counter += 1
-                                logger.info(f"page 内 fetch outline 拿到 {len(captured_outline)} 章 (原始 itemsRaw {len(items_raw)} 项,过滤掉纯数字展示用字段)")
-                        except Exception as e:
-                            logger.warning(f"page 内 fetch outline 解析失败: {e}")
-                    else:
-                        logger.warning(f"page 内 fetch outline 状态码 {status}")
+                    vp = page.viewport_size or {"width": 1280, "height": 800}
+                    # 点击右侧中央(腾讯阅读器"下一页"区域)
+                    await page.mouse.click(vp["width"] * 0.85, vp["height"] * 0.5)
                 except Exception as e:
-                    logger.warning(f"page 内 fetch outline 异常: {e}")
-
-            # 路 D: 在 page 里调 i.weread.qq.com/book/chapterInfos(浏览器内 fetch 带正确 cookie scope,绕过 401)
-            if not captured_outline:
-                logger.info("page 内 fetch i.weread.qq.com/book/chapterInfos")
+                    logger.debug(f"点击翻页失败: {e}")
+                # 也试键盘 ArrowRight
                 try:
-                    result2 = await page.evaluate(
-                        """async (bookId) => {
-                            const url = `https://i.weread.qq.com/book/chapterInfos?bookIds=${bookId}&synckeys=0`;
-                            const resp = await fetch(url, {
-                                credentials: 'include',
-                                headers: {
-                                    'accept': 'application/json, text/plain, */*',
-                                    'referer': `https://weread.qq.com/web/reader/${bookId}`
-                                }
-                            });
-                            const text = await resp.text();
-                            return { status: resp.status, body: text.slice(0, 8000) };
-                        }""",
-                        book_id,
+                    await page.keyboard.press("ArrowRight")
+                except Exception:
+                    pass
+                # 等下一次心跳
+                await page.wait_for_timeout(2500)
+
+                if len(captured_chapters) % 20 == 0 and len(captured_chapters) > 0:
+                    logger.info(
+                        f"翻页累积进度: {len(captured_chapters)} 章"
+                        f"(最新 c={list(captured_chapters.keys())[-1][:16]})"
                     )
-                    status2 = result2.get("status")
-                    body_text2 = result2.get("body", "")
-                    logger.info(f"i.weread chapterInfos status={status2} body[:300]={body_text2[:300]}")
-                    if status2 == 200:
-                        try:
-                            import json as _json
-                            body2 = _json.loads(body_text2)
-                            # 真实响应:{"data":[{"bookId":"...","chapters":[...]}]}
-                            items_raw2 = (
-                                (body2.get("data") or [{}])[0].get("chapters")
-                                if isinstance(body2.get("data"), list) and body2["data"]
-                                else None
-                            ) or body2.get("chapters") or body2.get("itemsArray") or []
-                            if isinstance(items_raw2, list) and items_raw2:
-                                idx_counter = 0
-                                for c in items_raw2:
-                                    if not isinstance(c, dict):
-                                        continue
-                                    uid = (
-                                        c.get("chapterUid")
-                                        or c.get("chapter_uid")
-                                        or c.get("uid")
-                                        or c.get("chapterId")
-                                        or c.get("itemId")
-                                    )
-                                    if uid is None:
-                                        continue
-                                    try:
-                                        idx_int = int(c.get("chapterIdx") or c.get("level") or idx_counter)
-                                    except Exception:
-                                        idx_int = idx_counter
-                                    title = c.get("title") or c.get("chapterTitle") or ""
-                                    captured_outline.append({
-                                        "chapterUid": str(uid),
-                                        "chapterIdx": idx_int,
-                                        "title": title,
-                                    })
-                                    idx_counter += 1
-                                logger.info(f"i.weread chapterInfos 拿到 {len(captured_outline)} 章")
-                        except Exception as e:
-                            logger.warning(f"i.weread chapterInfos 解析失败: {e}")
-                    else:
-                        logger.warning(f"i.weread chapterInfos 状态码 {status2}")
-                except Exception as e:
-                    logger.warning(f"i.weread chapterInfos 异常: {e}")
+
         finally:
             try:
-                listener_target.remove_listener("response", _on_response)
+                listener_target.remove_listener("request", _on_request)
             except Exception:
                 pass
 
-        # 兜底:从 page DOM 读章节列表
-        dom_chapters: List[Dict[str, Any]] = []
-        try:
-            dom_selectors = [
-                "[data-chapter-uid]",
-                "[data-uid]",
-                "[data-chapterid]",
-                ".catalogChapterItem",
-                ".chapterItem",
-                "[class*='chapterItem']",
-                "[class*='ChapterItem']",
-                ".readerChapterList li",
-                "[class*='chapter']",
-                "[class*='Chapter']",
-            ]
-            for sel in dom_selectors:
-                try:
-                    items = await page.locator(sel).all()
-                    for item in items:
-                        try:
-                            uid = (
-                                await item.get_attribute("data-chapter-uid")
-                                or await item.get_attribute("data-uid")
-                                or await item.get_attribute("data-chapterid")
-                                or await item.get_attribute("data-id")
-                            )
-                            if not uid:
-                                continue
-                            title = await item.text_content() or ""
-                            title = title.strip()[:80]
-                            dom_chapters.append({
-                                "chapterUid": str(uid),
-                                "chapterIdx": len(dom_chapters),
-                                "title": title,
-                            })
-                        except Exception:
-                            continue
-                    if dom_chapters:
-                        logger.info(f"DOM 拿章节: {sel} → {len(dom_chapters)} 章")
-                        break
-                except Exception:
-                    continue
-            # 终极兜底:在 page 里抓 window 上的 React 全局状态/初始 state
-            if not dom_chapters and not captured_outline:
-                try:
-                    result = await page.evaluate(
-                        """() => {
-                            // 微信读书 SPA 把整本书数据挂 window 上,常见位置:
-                            // window.__INITIAL_STATE__, window.ebook, window.__NEXT_DATA__,
-                            // 或者 redux/mobx 的全局 store
-                            const candidates = ['__INITIAL_STATE__', '__NEXT_DATA__', '__NUXT__', 'ebook', '__INITIAL_DATA__'];
-                            const found = {};
-                            for (const k of candidates) {
-                                if (typeof window[k] === 'object' && window[k] !== null) {
-                                    found[k] = Object.keys(window[k]).slice(0, 30);
-                                }
-                            }
-                            // 收集 window 上所有非 React/非 console 的对象 key
-                            const allKeys = Object.keys(window).filter(k =>
-                                !k.startsWith('chrome') && !k.startsWith('webkit') &&
-                                !k.startsWith('on') && k.length < 40 &&
-                                typeof window[k] === 'object' && window[k] !== null
-                            ).slice(0, 50);
-                            return { found, allKeys, url: location.href, title: document.title };
-                        }"""
-                    )
-                    logger.info(
-                        f"page window 探索: candidates={result.get('found')}, "
-                        f"allKeys(前30)={result.get('allKeys', [])[:30]}"
-                    )
-                except Exception as e:
-                    logger.warning(f"page window 探索失败: {e}")
-        except Exception as e:
-            logger.debug(f"DOM 读章节异常(非致命): {e}")
-
-        # 合并:outline 优先(完整列表) > chapter/e_N > DOM
-        merged: Dict[str, Dict[str, Any]] = {}
-        for c in captured_outline:
-            merged[c["chapterUid"]] = c
-        for uid, c in captured_chapters.items():
-            if uid not in merged:
-                merged[uid] = c
-            else:
-                if c.get("chapterIdx") and not merged[uid].get("chapterIdx"):
-                    merged[uid] = c
-        for c in dom_chapters:
-            if c["chapterUid"] not in merged:
-                merged[c["chapterUid"]] = c
-
-        if not merged:
-            seen_api = [
-                (u, s) for (u, s) in all_seen_urls
-                if any(api in u for api in ("chapter", "/book/"))
-            ]
-            current_url = ""
-            try:
-                current_url = page.url
-            except Exception:
-                pass
-            page_title = ""
-            try:
-                page_title = await page.title()
-            except Exception:
-                pass
+        if not captured_chapters:
             logger.warning(
-                f"fetch_chapter_info_via_page: {book_id[:12]} 全部 4 路都未拿到章节\n"
-                f"  当前 page URL: {current_url}\n"
-                f"  page title: {page_title}\n"
-                f"  截获的 outline 数量: {len(captured_outline)}\n"
-                f"  截获的 chapter 数量: {len(captured_chapters)}\n"
-                f"  DOM 读出的章节数量: {len(dom_chapters)}\n"
-                f"  期间走过的 chapter/book API URL (前 10 个):\n"
-                + "\n".join(f"    {s} {u}" for (u, s) in seen_api[:10])
+                f"fetch_chapter_info_via_page: {book_id[:12]} 截获 /web/book/read 为空,"
+                f"可能用户未在阅读页或未触发心跳"
             )
             return None
 
-        norm = sorted(merged.values(), key=lambda x: x.get("chapterIdx", 0))
+        # 按 chapterIdx 排序(腾讯返回的 ci 就是从 1 开始的真实顺序)
+        norm = sorted(captured_chapters.values(), key=lambda x: x.get("chapterIdx", 0))
         first = norm[0]
         logger.info(
             f"🌐 Playwright 抓章节成功: {book_id[:12]} 拿到 {len(norm)} 章"
-            f"(outline {len(captured_outline)} + chapter {len(captured_chapters)} + DOM {len(dom_chapters)}),"
-            f"首章 c={first['chapterUid'][:16]} idx={first.get('chapterIdx', 0)}"
+            f"(从 /web/book/read 心跳累积),首章 c={first['chapterUid'][:16]} idx={first.get('chapterIdx', 0)}"
         )
         return {
             "bookId": book_id,

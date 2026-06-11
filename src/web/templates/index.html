@@ -511,6 +511,41 @@
         .search-row { display: flex; gap: 8px; align-items: center; }
         .search-row > input { flex: 1; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; background: var(--bg-card); color: var(--text-1); outline: none; }
         .search-row > input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+
+        /* ===== 动态效果(优雅版,统一受 prefers-reduced-motion 约束) ===== */
+        html { scroll-behavior: smooth; }
+        /* 头部:滚动后加深阴影,产生"浮起"层次感 */
+        .header { transition: box-shadow 0.25s ease, background-color 0.2s; }
+        .header.scrolled { box-shadow: 0 4px 16px rgba(0,0,0,0.10); }
+        :root[data-theme="dark"] .header.scrolled { box-shadow: 0 4px 18px rgba(0,0,0,0.55); }
+        /* 进度条:流动渐变 + 宽度过渡更顺滑 */
+        .progress-bar-fill {
+            background: linear-gradient(90deg, var(--primary) 0%, var(--primary-hover) 50%, var(--primary) 100%);
+            background-size: 200% 100%;
+            transition: width 0.8s cubic-bezier(.22,.61,.36,1);
+        }
+        /* 日志单行:新条目自下而上滑入 */
+        #logConsole .log-line { animation: logLineIn 0.32s ease both; word-break: break-all; }
+        #logConsole .log-line .log-ts { color: var(--text-3); margin-right: 6px; }
+        #logConsole .log-line.is-error { color: var(--danger); }
+        #logConsole .log-line.is-action { color: var(--primary); }
+        @keyframes logLineIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+        @keyframes barFlow { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+        @media (prefers-reduced-motion: no-preference) {
+            /* 进度条运行时流光 */
+            .progress-bar-fill { animation: barFlow 2.4s linear infinite; }
+            /* 卡片滚动揭示:进入视口才淡入上移(仅 body.anim-on 时启用,JS 失败则正常显示) */
+            body.anim-on .card { opacity: 0; transform: translateY(16px); transition: opacity 0.55s ease, transform 0.55s cubic-bezier(.22,.61,.36,1), border-color 0.2s, box-shadow 0.2s; }
+            body.anim-on .card.in-view { opacity: 1; transform: none; }
+            /* 卡片悬浮轻微抬升 */
+            .card { transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s; }
+            .col-main .card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            html { scroll-behavior: auto; }
+            #logConsole .log-line { animation: none; }
+        }
     </style>
 
 </head>
@@ -1426,23 +1461,28 @@ window.confirmUsername = confirmUsername;
 
 // === 轮询 cookie 状态(检测 needs_relogin) ===
 // 适配新结构:右上角"用户菜单"显示用户名,独立的"Cookie 失效条"显示失效提示(互不重叠)
+// 兜底:用模板渲染时的 logged_in_user(从"状态"卡传过来),保证右上角和状态卡至少一致
+var _initialUserName = {{ (logged_in_user or '') | tojson }};
 async function checkCookieHealth() {
+    var cookieBadge = document.getElementById('headerCookieBadge');
+    var nameEl = document.getElementById('headerUserName');
     try {
         var r = await fetch('/login/status');
         var d = await r.json();
-        var cookieBadge = document.getElementById('headerCookieBadge');
-        var nameEl = document.getElementById('headerUserName');
         if (d.needs_relogin) {
             // 显示 cookie 失效条
             if (cookieBadge) cookieBadge.style.display = 'inline-flex';
             if (nameEl) nameEl.textContent = '登录已过期';
-        } else {
-            if (cookieBadge) cookieBadge.style.display = 'none';
-            if (nameEl) {
-                nameEl.textContent = d.user_name || '未登录';
-            }
+            return;
         }
-    } catch (e) {}
+        // 未失效:用接口返回的用户名,否则兜底用模板传的
+        if (cookieBadge) cookieBadge.style.display = 'none';
+        var name = d.user_name || d.user || _initialUserName || '未登录';
+        if (nameEl) nameEl.textContent = name;
+    } catch (e) {
+        // 接口失败:用兜底值
+        if (nameEl) nameEl.textContent = _initialUserName || '未登录';
+    }
 }
 window.checkCookieHealth = checkCookieHealth;
 
@@ -1464,6 +1504,46 @@ function hideReloginBanner() {
     if (b) b.remove();
 }
 window.hideReloginBanner = hideReloginBanner;
+
+// === 日志增量渲染(只追加新行 + 滑入动画,避免每轮整表重绘闪烁) ===
+var _logRenderState = { sigs: [] };
+function renderLogs(logs) {
+    var c = document.getElementById('logConsole');
+    if (!c) return;
+    if (!logs || !logs.length) {
+        if (_logRenderState.sigs.length || !c.children.length) {
+            c.innerHTML = '<div style="color:var(--text-3)">等待日志...</div>';
+            _logRenderState.sigs = [];
+        }
+        return;
+    }
+    var sigs = logs.map(function(l) { return l.time + '|' + l.msg; });
+    // 最长公共前缀:已渲染部分原样保留,只追加差异尾部
+    var common = 0;
+    while (common < sigs.length && common < _logRenderState.sigs.length
+           && sigs[common] === _logRenderState.sigs[common]) common++;
+    // 历史发生分叉(deque 轮转/新会话清空)→ 整表重建
+    if (common < _logRenderState.sigs.length) { c.innerHTML = ''; common = 0; }
+    if (common === 0) c.innerHTML = '';
+    for (var i = common; i < logs.length; i++) {
+        var msg = logs[i].msg || '';
+        var line = document.createElement('div');
+        line.className = 'log-line';
+        if (msg.indexOf('❌') >= 0 || /失败|错误|失效|异常/.test(msg)) line.className += ' is-error';
+        else if (msg.indexOf('📖') >= 0 || msg.indexOf('📚') >= 0 || /阅读|切换|开始|完成/.test(msg)) line.className += ' is-action';
+        var ts = document.createElement('span');
+        ts.className = 'log-ts';
+        ts.textContent = '[' + logs[i].time + ']';
+        line.appendChild(ts);
+        line.appendChild(document.createTextNode(msg));
+        c.appendChild(line);
+    }
+    _logRenderState.sigs = sigs;
+    // 平滑滚到底部(浏览器不支持 smooth 时自动回退)
+    try { c.scrollTo({ top: c.scrollHeight, behavior: 'smooth' }); }
+    catch (e) { c.scrollTop = c.scrollHeight; }
+}
+window.renderLogs = renderLogs;
 
 // === 阅读触发 ===
 async function triggerReading() {
@@ -1546,10 +1626,7 @@ function startProgressPoll() {
             }
         }).catch(function() {});
         fetch('/api-reading-logs').then(function(r) { return r.json(); }).then(function(logs) {
-            var c = document.getElementById('logConsole');
-            if (!logs || !logs.length) { c.innerHTML = '<div style="color:var(--text-3)">等待日志...</div>'; return; }
-            c.innerHTML = logs.map(function(l) { return '<div>[' + l.time + '] ' + l.msg + '</div>'; }).join('');
-            c.scrollTop = c.scrollHeight;
+            renderLogs(logs);
         }).catch(function() {});
     }
     setTimeout(refreshBackend, 2000);
@@ -2365,6 +2442,44 @@ function init() {
     var notifGlobal = document.getElementById('notificationEnabled');
     if (notifGlobal) notifGlobal.addEventListener('change', applyNotificationGlobal);
     applyNotificationGlobal();
+    // 动态效果:卡片滚动揭示 + 头部滚动阴影
+    initMotionEffects();
+}
+
+// === 动态效果:滚动揭示 + 头部阴影(尊重 prefers-reduced-motion) ===
+function initMotionEffects() {
+    try {
+        var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        // 头部滚动阴影(轻量,reduce 下也无妨)
+        var header = document.querySelector('.header');
+        if (header) {
+            var onScroll = function() {
+                if (window.scrollY > 4) header.classList.add('scrolled');
+                else header.classList.remove('scrolled');
+            };
+            window.addEventListener('scroll', onScroll, { passive: true });
+            onScroll();
+        }
+        // 卡片滚动揭示(reduce 或不支持 IO 时直接跳过,保持原样全显示)
+        if (reduce || !('IntersectionObserver' in window)) return;
+        document.body.classList.add('anim-on');
+        var cards = document.querySelectorAll('.card');
+        var io = new IntersectionObserver(function(entries) {
+            entries.forEach(function(en) {
+                if (en.isIntersecting) {
+                    en.target.classList.add('in-view');
+                    io.unobserve(en.target);
+                }
+            });
+        }, { threshold: 0.06, rootMargin: '0px 0px -40px 0px' });
+        cards.forEach(function(card) { io.observe(card); });
+        // 兜底:2.5s 后强制显示所有卡片(防止极端情况漏揭示导致空白)
+        setTimeout(function() {
+            document.querySelectorAll('.card:not(.in-view)').forEach(function(card) {
+                card.classList.add('in-view');
+            });
+        }, 2500);
+    } catch (e) { /* 动效是增强项,失败不影响功能 */ }
 }
 
 function updateLoginButtons() {

@@ -1151,13 +1151,21 @@ async def login_status():
     status = browser_manager.get_login_status()
     if status["status"] == "need_username":
         return JSONResponse({"status": "need_username", "message": "请输入用户名"})
-    # 补充 user_name(取第一个有效用户),让前端 header 右上角可以显示
-    try:
-        valid_users = cookie_manager.get_all_valid_users()
-        if valid_users and "user_name" not in status:
-            status["user_name"] = valid_users[0]
-    except Exception:
-        pass
+    # 兼容:浏览器返回字段是 user;前端 header 右上角读 user_name + 状态卡读 user
+    # 优先用浏览器当前用户,否则回退到第一个有效用户(磁盘凭证)
+    user_name = status.get("user") or ""
+    if not user_name:
+        try:
+            valid_users = cookie_manager.get_all_valid_users()
+            if valid_users:
+                user_name = valid_users[0]
+        except Exception:
+            pass
+    if user_name:
+        status["user_name"] = user_name
+        # 没设 user 时也回填,保持 user 字段存在
+        if not status.get("user"):
+            status["user"] = user_name
     return JSONResponse(status)
 
 

@@ -131,10 +131,9 @@ class ApiReader:
             self.data["b"] = self.last_book_id or ""
         if not self.data.get("c"):
             self.data["c"] = self.last_chapter_id or ""
-        # 兜底 r/st/sc:首次或 captured 缺失
-        self.data.setdefault("r", 0)
-        self.data.setdefault("st", 0)
-        self.data.setdefault("sc", 0)
+        # 跟 upstream funnyzak/weread-bot DEFAULT_DATA 对齐,只发 14 个核心字段
+        # (appId/b/c/ci/co/sm/pr/ps/pc/ct/ts/rn/rt/sg),不发 r/st/sc 这 3 个全零字段
+        # (腾讯新版启发式可能拒收全零值)
 
         # 2) cookies
         cc = ui.get("captured_cookies", {}) or {}
@@ -151,17 +150,17 @@ class ApiReader:
         # 3) headers:跟 upstream funnyzak/weread-bot 对齐,pass-through 风格
         # 关键原则:**用户 curl 抓了什么 header,就发什么 header**,腾讯反爬才会认
         # upstream 不做任何过滤(只过滤 Cookie,因为我们用 httpx cookies= kwarg 单独传)
-        # 我们之前过滤 x-wrpa-0 / sec-* 是错的,导致腾讯拿不到反爬 token,稳定返回 {}
+        #
+        # 历史坑:之前"强制要求" captured_headers 必须有 x-wrpa-0 / sec-ch-ua*,反而把
+        # 老用户没抓到这些 header 的 curl 干掉了。新策略:curl 里有就带上,没有就跳过,
+        # 完全跟 upstream 对齐(funnyzak 不强制任何 header,有就发没有就不发)。
         ch = ui.get("captured_headers", {}) or {}
         if ch and isinstance(ch, dict):
-            # 基础:用 captured_headers 作为起点(完全照搬 upstream)
-            # 不再用 DEFAULT_HEADERS 兜底——避免被默认 header 覆盖关键指纹
             self.headers = dict(ch)
-            # 只过滤 4 类:
+            # 只过滤 4 类(httpx/curl_parser 内部需要):
             #   1) Cookie:httpx 走 cookies= kwarg,不能同时放 header 里
             #   2) host / content-length / connection:httpx 自己处理
             #   3) baggage / sentry* / sentry-trace:sentry 上报头,业务请求不该带
-            # 其余(x-wrpa-0, sec-ch-ua*, user-agent, referer, accept, content-type 等)全部保留
             for k in list(self.headers.keys()):
                 kl = k.lower()
                 if kl == "cookie":
@@ -173,6 +172,16 @@ class ApiReader:
             # 没有 captured_headers 才用 DEFAULT_HEADERS 兜底
             # (curl_parser 失败或老数据没存 header 才会到这里)
             self.headers = dict(self.DEFAULT_HEADERS)
+        # x-wrpa-0 是腾讯风控 token(扫码登录后从浏览器 SSR 拿到的动态值,可能数小时
+        # 失效)。如果 captured_headers 里没有,不主动去算/不报错,完全跟 upstream
+        # funnyzak 一致(funnyzak 根本不用这个 token)。如果 curl 里带了,保留即可。
+        # 后续真触发风控时,可以扩展为"按需刷新":失败 N 次后调 /web/login/renewal
+        # 重新拉取 captured_headers,但这版先不上,保持简单。
+        if "x-wrpa-0" not in {k.lower() for k in self.headers}:
+            # 兜底:从已保存的 credentials 里尝试拿上次成功的 x-wrpa-0(可能过期但聊胜于无)
+            stored_wrpa = ui.get("x_wrpa_0", "")
+            if stored_wrpa:
+                self.headers["x-wrpa-0"] = stored_wrpa
 
     def _heal_payload_mojibake(self):
         """兜底:如果 self.data["sm"] 看起来是双重 UTF-8 编码(被 Latin-1 解读过),
@@ -296,22 +305,13 @@ class ApiReader:
         if self.last_chapter_id:
             self.data["c"] = self.last_chapter_id
 
-        # 注入 captured 里的 r/st/sc(如有)
-        ui = self.credentials.user_info or {}
-        cp = ui.get("captured_payload", {}) or {}
-        for k in ("r", "st", "sc"):
-            v = cp.get(k)
-            if v is not None and (k not in self.data or self.data.get(k) in (None, 0, "")):
-                self.data[k] = v
-
-        # r/st/sc 兜底
-        if "r" not in self.data or self.data.get("r") in (None,):
-            self.data["r"] = random.randint(10000000, 99999999)
-        if "st" not in self.data or self.data.get("st") is None:
-            self.data["st"] = 0
-        if "sc" not in self.data or self.data.get("sc") is None:
-            self.data["sc"] = 0
-
+        # 跟 upstream funnyzak/weread-bot DEFAULT_DATA 对齐,只发 14 个核心字段
+        # (appId/b/c/ci/co/sm/pr/ps/pc/ct/ts/rn/rt/sg),不发 r/st/sc 这 3 个字段
+        # 之前的"r 字段 random.randint(10000000, 99999999)"是错的:
+        #   - 上游没有这个字段(默认 0 或不存在)
+        #   - 17708124 这种 8 位巨大值会让腾讯新版启发式拒收
+        # 历史坑:之前"r/st/sc setdefault 在 init 时初始化为 0"已被前一个 edit 删掉,
+        # 这里 prepare 时的兜底也删掉,彻底不发送这 3 个字段
         # 章节索引 ci (关键 P1 修复:腾讯以此判断是否在真实推进阅读)
         # 优先级:每本书独立的 ci 计数器 > captured.ci > 0
         # 注意:_advance_chapter_index 已经在主循环每轮调用过,last_chapter_index 已经是最新值
@@ -634,13 +634,13 @@ class ApiReader:
         last_book_switch_time = 0
         refresh_attempted = False
         # Circuit breaker:连续失败 N 次立即切到浏览器模式
+        # 临时禁用:用户排查 API 模式真实失败原因时,不想被 circuit breaker 提前结束阅读
+        # 设大值 = 等同禁用,但保留代码路径(以后恢复时只改这里一个值)
         self._consecutive_failures = 0
-        circuit_breaker_threshold = 8
-        # 空 dict 熔断:连续 N 次模糊响应(没有 succ 也没有明确失败)→ 判定 API 死透
-        # 历史坑:抓包数据损坏时 API 会稳定返回 {},不计入失败 → 熔断永远不触发
-        # 这里单独算账,阈值约 = circuit_breaker_threshold * 2 (给风控临时响应一点容差)
+        circuit_breaker_threshold = 99999
+        # 空 dict 熔断:同样禁用
         self._consecutive_none = 0
-        none_breaker_threshold = 20
+        none_breaker_threshold = 99999
 
         try:
             while self.elapsed_seconds < target_seconds and not self.should_stop:
@@ -673,6 +673,18 @@ class ApiReader:
                     self._advance_chapter_index()
 
                 self._prepare_payload(last_time)
+
+                # 防御:如果选书/选章节失败(空 b/c),跳过这一轮不发送请求
+                # 否则会一直用空 b/c 调 API → 持续空 dict → 死循环
+                if not self.data.get("b") or not self.data.get("c"):
+                    logger.debug(
+                        f"主循环:跳过本轮(book={self.data.get('b','')!r}, "
+                        f"chapter={self.data.get('c','')!r}),等待下一轮重选"
+                    )
+                    self.failed_reads += 1
+                    self._consecutive_failures += 1
+                    await asyncio.sleep(2)
+                    continue
 
                 try:
                     if not _logged_first:
@@ -839,11 +851,7 @@ class ApiReader:
 
                 if on_progress and self.elapsed_seconds - (self._last_progress_time or 0) >= 10:
                     pct = min(int((self.elapsed_seconds / target_seconds) * 100), 100)
-                    elapsed_m = self.elapsed_seconds // 60
-                    elapsed_s = self.elapsed_seconds % 60
-                    log_msg = f"进度 {pct}% ({elapsed_m}分{elapsed_s}秒)"
-                    if self.total_reads > 0 or self.failed_reads > 0:
-                        log_msg += f" | 成功 {self.total_reads} 失败 {self.failed_reads}"
+                    # 进度字典每 10s 推一次(只驱动前端进度条/状态,不带 log)
                     progress = {
                         "elapsed": self.elapsed_seconds,
                         "target": target_seconds,
@@ -852,17 +860,14 @@ class ApiReader:
                         "book_name": self.last_book_name,
                         "total_reads": self.total_reads,
                         "failed_reads": self.failed_reads,
-                        "log": log_msg,
                     }
-                    # 关键修复:每个 N 秒主动给前端推一条心跳 log,避免前端 logConsole 一直空白
-                    if int(self.elapsed_seconds) - self._last_progress_log_time >= 30:
-                        self._last_progress_log_time = int(self.elapsed_seconds)
-                        progress["log"] = f"⏱️ 进度 {pct}% | 成功 {self.total_reads} 失败 {self.failed_reads}"
+                    # 日志降噪:不再每 10s / 30s 推"进度 X%"心跳,只在**真正翻到新章/换书**
+                    # 时推一条有意义的行为日志。进度百分比由进度条体现,无需刷屏 logConsole。
                     book_key = f"{self.last_book_name or self.last_book_id}:{self.last_chapter_index or 0}"
                     if book_key != self._last_logged_book:
                         self._last_logged_book = book_key
-                        ch_info = f" 第{self.last_chapter_index}章" if self.last_chapter_index is not None else ""
-                        progress["log"] = f"阅读: {self.last_book_name or self.last_book_id}{ch_info}"
+                        ch_info = f" · 第 {self.last_chapter_index} 章" if self.last_chapter_index is not None else ""
+                        progress["log"] = f"📖 阅读 {self.last_book_name or self.last_book_id}{ch_info}"
                     await on_progress(progress)
                     self._last_progress_time = self.elapsed_seconds
 
@@ -945,7 +950,7 @@ class ApiReader:
 
         # 关键:第一本从 books 配置 random.choice,不读 last_book_id
         book = random.choice(candidates)
-        logger.info(
+        logger.debug(
             f"随机选书: {book.get('name') or book.get('book_id','')[:12]} "
             f"(共 {len(candidates)} 本候选,本次随机到第 {candidates.index(book)+1} 本)"
         )
@@ -967,26 +972,34 @@ class ApiReader:
                 _cix = None
                 _cname = ""
 
-            # 防御性检查:chapter_id 必须是腾讯后端用的 24 字符 hex UID
-            # 真实格式形如 "154325b0318b1543843a9ca"(24 字符,小写 hex 为主)
-            # 如果是纯数字(< 6 字符)或太短,基本是用户/老数据错填的"章节顺序号"
-            # 这种值发给腾讯会被静默拒收(返回 {})
-            # 修复:视为无效,走懒加载拿真 chapter UID
-            if (
-                not _cid
-                or not isinstance(_cid, str)
-                or len(_cid) < 6
-                or _cid.isdigit()  # 纯数字(如 "50")
-            ):
+            # 防御性检查:chapter_id 必须是腾讯后端用的真 chapterUid
+            # 真实格式不固定:24 字符 hex(如 154325b0318b1543843a9ca)或纯数字(如 "2")
+            # 微信读书多册合集 outline 的 itemId 就是纯数字 UID
+            #
+            # 放宽规则:只过滤"空字符串"和"明显错填(全是空格/含特殊字符)"
+            # 关键:chapter_id 跟磁盘缓存的 chapters 列表里**任何一个对得上**就接受
+            # 否则视为未填,走懒加载
+            if not _cid or not isinstance(_cid, str):
                 logger.warning(
-                    f"检测到无效的 chapter_id {_cid!r}(< 6 字符或纯数字),"
-                    f"通常是误填的章节顺序号而非真 UID。改走懒加载路径获取真章节 UID..."
+                    f"检测到空 chapter_id,走懒加载路径获取真章节 UID..."
                 )
-                # 不使用 raw_chapters,直接跳到懒加载分支
-                # 留 chapter_id="" 让下面的 else 分支跑懒加载
                 _cid = ""
                 _cix = None
                 _cname = ""
+            else:
+                # 检查是否在磁盘缓存的 chapters 列表里
+                cached_check = self._book_chapter_cache.get(book_id) or {}
+                cached_chapters = cached_check.get("chapters") or []
+                cached_uids = {c.get("chapterUid") for c in cached_chapters if c.get("chapterUid")}
+                if cached_uids and _cid not in cached_uids:
+                    # 不在缓存里 → 视为无效(可能用户填了不存在或被污染的)
+                    logger.warning(
+                        f"检测到 chapter_id {_cid!r} 不在磁盘缓存的章节列表里,"
+                        f"改走懒加载路径获取真章节 UID..."
+                    )
+                    _cid = ""
+                    _cix = None
+                    _cname = ""
 
             chapter_id = _cid
             chapter_index = _cix
@@ -1049,13 +1062,12 @@ class ApiReader:
         return book_id, chapter_id, chapter_index, book_name, chapter_name
 
     async def _ensure_chapter_for_book(self, book_id: str) -> Optional[Dict[str, Any]]:
-        """懒加载:三级缓存策略拿指定书的章节列表。
+        """懒加载:二级缓存 + Playwright 拿章节列表(完全对齐 funnyzak 风格)。
 
         查找顺序:
           1) 内存缓存 self._book_chapter_cache(本次会话有效)
           2) 磁盘缓存 shared/credentials/{user}/chapters/{bookId}.json(跨会话)
-          3) Playwright 真实打开 reader 页截获 chapterInfos 响应(主方案)
-          4) httpx 直调 i.weread.qq.com(兜底,i.weread.qq.com 反爬严时会被 401)
+          3) Playwright 截获 /web/book/read 心跳的 c 字段,翻页累积(主方案)
 
         写入:
           - 1) 内存缓存
@@ -1063,6 +1075,9 @@ class ApiReader:
           - 3) config.yaml 回填(兼容旧路径)
 
         失败:返回 None,且把 book_id 加入 _lazy_load_failed,避免 retry 循环无限重试同一本
+
+        设计原则:只依赖 /web/book/read(腾讯阅读心跳,不会改版),不调任何
+        chapterInfos / outline / bookmarklist 端点(都可能因微信读书改版失效)。
         """
         # 1) 内存缓存
         if book_id in self._book_chapter_cache:
@@ -1079,19 +1094,16 @@ class ApiReader:
             if disk_cached:
                 chapters = disk_cached.get("chapters", [])
                 if chapters:
-                    # 关键校验:磁盘缓存里的 chapterUid 必须是真 UID(>= 6 字符且非纯数字)
-                    # 老 bug 写入了纯数字 itemId(误以为 chapterUid),这种脏数据腾讯会拒收
-                    # 检测到污染 → 视为不可用,fall through 到下一路重新 fetch
+                    # 关键校验:磁盘缓存里的 chapterUid 是否可用
+                    # 之前规则"必须 >= 6 字符且非纯数字"是错的:
+                    #   微信读书某些书(多册合集)的 outline itemId 就是纯数字 UID
+                    #   (英国通史 outline 真返回 c=2,这种就是合法的真 chapterUid)
+                    # 新规则:只要 first_chapter_uid 存在 + chapters 非空,就接受
                     first_uid = disk_cached.get("first_chapter_uid", "") or ""
-                    is_polluted = (
-                        not first_uid
-                        or len(first_uid) < 6
-                        or first_uid.isdigit()
-                    )
+                    is_polluted = not first_uid
                     if is_polluted:
                         logger.warning(
-                            f"磁盘章节缓存疑似污染(first_chapter_uid={first_uid!r} 看起来不是真 UID),"
-                            f"删除并重新 fetch..."
+                            f"磁盘章节缓存 first_chapter_uid 为空,删除并重新 fetch..."
                         )
                         try:
                             user_data_manager.delete_chapters(self.user_name, book_id)
@@ -1104,14 +1116,14 @@ class ApiReader:
                         )
                         self._book_chapter_cache[book_id] = {
                             "chapters": chapters,
-                            "first_chapter_uid": disk_cached.get("first_chapter_uid", ""),
+                            "first_chapter_uid": first_uid,
                             "first_chapter_idx": disk_cached.get("first_chapter_idx", 0),
                         }
                         return self._book_chapter_cache[book_id]
         except Exception as e:
             logger.debug(f"磁盘章节缓存查询失败(非致命): {e}")
 
-        # 3) Playwright 截获(主方案,反爬抗性强)
+        # 3) Playwright 截获(主方案,反爬抗性强,只依赖 /web/book/read)
         info = await self._fetch_chapter_via_playwright(book_id)
         if info:
             self._book_chapter_cache[book_id] = info
@@ -1128,25 +1140,12 @@ class ApiReader:
                 logger.debug(f"持久化章节到 config.yaml 失败(非致命): {e}")
             return self._book_chapter_cache[book_id]
 
-        # 4) httpx 兜底(原方案) — i.weread.qq.com 反爬严时 401
-        info = await self._fetch_chapter_via_httpx(book_id)
-        if info:
-            self._book_chapter_cache[book_id] = info
-            try:
-                from src.user_data_manager import user_data_manager
-                user_data_manager.save_chapters(self.user_name, book_id, info)
-            except Exception as e:
-                logger.debug(f"保存磁盘章节缓存失败(非致命): {e}")
-            try:
-                self._persist_chapter_to_config(book_id, info["chapters"])
-            except Exception as e:
-                logger.debug(f"持久化章节到 config.yaml 失败(非致命): {e}")
-            return self._book_chapter_cache[book_id]
-
-        # 5) 全部失败 → 标记失败
+        # 不再有 httpx i.weread.qq.com 兜底(4 路删到 1 路)
+        # Playwright 也失败 → 标记失败并返回 None,避免 retry 循环无限重试同一本
         self._lazy_load_failed.add(book_id)
         logger.warning(
-            f"懒加载章节最终失败: {book_id[:12]} (Playwright + httpx 都不可用)"
+            f"懒加载章节最终失败: {book_id[:12]} "
+            f"(Playwright 截获 /web/book/read 心跳失败)"
         )
         return None
 
@@ -1164,138 +1163,6 @@ class ApiReader:
             return info
         except Exception as e:
             logger.debug(f"Playwright 抓章节异常(非致命): {e}")
-            return None
-
-    async def _fetch_chapter_via_httpx(self, book_id: str) -> Optional[Dict[str, Any]]:
-        """【兜底方案】用 httpx 直调 i.weread.qq.com/book/chapterInfos。
-        保留原懒加载逻辑,在 Playwright 不可用时回退。
-        注意:本方法不修改 self._lazy_load_failed,失败标记由 _ensure_chapter_for_book 统一处理。
-        """
-        # 优先用 self.cookies(self._refresh_cookie 更新过的最新 skey)
-        wr_skey = self.cookies.get("wr_skey", "")
-        wr_vid = self.cookies.get("wr_vid", "")
-        if not wr_skey or not wr_vid:
-            try:
-                from src.cookie_manager import cookie_manager
-                cookies = cookie_manager.load()
-                for c in cookies or []:
-                    if c.get("name") == "wr_skey":
-                        wr_skey = c.get("value", "")
-                    if c.get("name") == "wr_vid":
-                        wr_vid = c.get("value", "")
-            except Exception:
-                pass
-
-        # 关键:wr_skey/wr_vid 都为空(或之前 -2012 被主动清掉)→ 不发请求,直接返回
-        # (避免 401 干扰日志,也避免 -2012 后还在用空 cookie 反复尝试)
-        if not wr_skey or not wr_vid:
-            logger.debug(
-                f"懒加载 httpx: wr_skey/wr_vid 都为空,跳过 (book={book_id[:12]})"
-            )
-            return None
-
-        try:
-            import httpx as _httpx
-            url = f"https://i.weread.qq.com/book/chapterInfos?bookIds={book_id}&synckeys=0"
-            headers = {
-                "accept": "application/json, text/plain, */*",
-                "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "referer": f"https://weread.qq.com/web/reader/{book_id}",
-            }
-            cookies_dict = {}
-            for k, v in (self.cookies or {}).items():
-                if k in ("wr_skey", "wr_vid", "wr_gid", "wr_fp", "wr_ql", "wr_rt"):
-                    cookies_dict[k] = v
-            if not cookies_dict.get("wr_skey") or not cookies_dict.get("wr_vid"):
-                try:
-                    from src.cookie_manager import cookie_manager as _cm
-                    disk_cookies = _cm.load() or []
-                    for c in disk_cookies:
-                        if isinstance(c, dict):
-                            n = c.get("name")
-                            v = c.get("value", "")
-                            if n in ("wr_skey", "wr_vid", "wr_gid", "wr_fp", "wr_ql", "wr_rt") and n not in cookies_dict and v:
-                                cookies_dict[n] = v
-                except Exception:
-                    pass
-            async with _httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-                resp = await client.get(url, headers=headers, cookies=cookies_dict)
-
-            if resp.status_code != 200:
-                logger.warning(f"懒加载 httpx: {book_id} 状态码 {resp.status_code} body[:200]={resp.text[:200]}")
-                return None
-
-            try:
-                data = resp.json()
-            except Exception as e:
-                logger.warning(f"懒加载 httpx:解析失败 {e}")
-                return None
-
-            items = None
-            if isinstance(data, dict):
-                if "data" in data and isinstance(data["data"], list):
-                    items = data["data"]
-                elif "results" in data and isinstance(data["results"], list):
-                    items = data["results"]
-                elif "chapters" in data and isinstance(data["chapters"], list):
-                    items = [{"bookId": book_id, "chapters": data["chapters"]}]
-            elif isinstance(data, list):
-                items = data
-
-            if not items:
-                logger.warning(f"懒加载 httpx: {book_id} 响应无 items")
-                return None
-
-            target = None
-            for it in items:
-                if not isinstance(it, dict):
-                    continue
-                bid = it.get("bookId") or it.get("book_id") or it.get("bookid")
-                if str(bid) == str(book_id):
-                    target = it
-                    break
-            if target is None:
-                target = items[0]
-
-            chapters = target.get("chapters") or []
-            if not isinstance(chapters, list) or not chapters:
-                logger.warning(f"懒加载 httpx: {book_id} 没有 chapters 字段")
-                return None
-
-            norm = []
-            for c in chapters:
-                if not isinstance(c, dict):
-                    continue
-                uid = c.get("chapterUid") or c.get("chapter_uid") or c.get("uid") or c.get("id")
-                if uid is None:
-                    continue
-                uid_str = str(uid)
-                idx = c.get("chapterIdx") or c.get("chapter_idx") or c.get("idx") or c.get("order") or 0
-                try:
-                    idx_int = int(idx)
-                except Exception:
-                    idx_int = 0
-                norm.append({
-                    "chapterUid": uid_str,
-                    "chapterIdx": idx_int,
-                    "title": c.get("title") or c.get("chapterTitle") or "",
-                })
-
-            if not norm:
-                return None
-
-            norm.sort(key=lambda x: x["chapterIdx"])
-            first = norm[0]
-            logger.info(
-                f"📡 httpx 抓章节成功: {book_id[:12]} 拿到 {len(norm)} 章,首章 c={first['chapterUid'][:16]}"
-            )
-            return {
-                "chapters": norm,
-                "first_chapter_uid": first["chapterUid"],
-                "first_chapter_idx": first["chapterIdx"],
-            }
-        except Exception as e:
-            logger.warning(f"懒加载 httpx 异常: {e}")
             return None
 
     @staticmethod
@@ -1350,6 +1217,12 @@ class ApiReader:
         关键修复:这是腾讯服务端识别"真实阅读 vs 原地不动"的核心信号。
         同一 chapter_id 长时间不变 + ci 不变 → 服务端静默丢弃,阅读时长不入账。
         每本书独立的计数器,跨书切换时从0开始(避免污染)。
+
+        新增"读完回到第一章重读"逻辑:
+          - 每本书的 _book_ci_max 从 _book_chapter_cache 里取(懒加载拿到的总章节数)
+          - ci 超过 max → 回到 1(模拟"用户把这本书又读了一遍")
+          - 如果缓存里没有 max(没懒加载到),继续单调递增,不会卡死
+          - 可通过 reading.chapter_loop 配置关闭(默认 True)
         """
         if not hasattr(self, "_book_ci_counters"):
             self._book_ci_counters = {}
@@ -1358,9 +1231,60 @@ class ApiReader:
         if not book_id:
             return
 
+        loop_enabled = True
+        try:
+            loop_enabled = bool(config.get("reading.chapter_loop", True))
+        except Exception:
+            pass
+
         cur = self._book_ci_counters.get(book_id, 0) + 1
+
+        # 读完回到第一章:从缓存里拿总章节数
+        if loop_enabled:
+            cached = self._book_chapter_cache.get(book_id) or {}
+            chapters = cached.get("chapters") or []
+            if chapters:
+                # 总章节数:取最大 chapterIdx 减最小 chapterIdx + 1(章节 idx 可能不从 1 开始)
+                idxs = [c.get("chapterIdx", 0) for c in chapters if c.get("chapterIdx") is not None]
+                if idxs:
+                    total = max(idxs) - min(idxs) + 1
+                    if total > 0 and cur > total:
+                        # 回到第一章(用最小 idx 重读),记一个日志便于排错
+                        cur = min(idxs)
+                        if not hasattr(self, "_book_loop_counters"):
+                            self._book_loop_counters = {}
+                        self._book_loop_counters[book_id] = self._book_loop_counters.get(book_id, 0) + 1
+                        logger.info(
+                            f"🔁 已读完 {book_id[:12]}({total} 章),回到第 1 章重读 "
+                            f"(第 {self._book_loop_counters[book_id]} 轮)"
+                        )
+
         self._book_ci_counters[book_id] = cur
         self.last_chapter_index = cur
+
+        # 关键:根据 ci 索引到磁盘缓存,选对应的真 chapterUid 作为新 c
+        # 否则 c 一直不变(磁盘 first chapter),腾讯识别到"重复请求同一章"会风控拒收
+        cached = self._book_chapter_cache.get(book_id) or {}
+        chapters = cached.get("chapters") or []
+        if chapters:
+            # 找到 chapterIdx 最接近 cur 的那个章节
+            # 章节不一定从 1 开始(可能从 5/10 起步),用排序后按位置索引
+            sorted_chapters = sorted(
+                [c for c in chapters if c.get("chapterIdx") is not None],
+                key=lambda x: x.get("chapterIdx", 0)
+            )
+            if sorted_chapters:
+                # ci 1 → 第一个(0);ci 2 → 第二个(1);...;超过 → 最后一个
+                if cur >= 1 and cur <= len(sorted_chapters):
+                    target_chap = sorted_chapters[cur - 1]
+                else:
+                    target_chap = sorted_chapters[min(cur - 1, len(sorted_chapters) - 1)]
+                new_c = target_chap.get("chapterUid", "")
+                if new_c and new_c != self.last_chapter_id:
+                    self.last_chapter_id = new_c
+                    logger.debug(
+                        f"翻页: book={book_id[:12]} ci={cur} → c={new_c[:16]}"
+                    )
 
     async def stop_reading(self):
         self.should_stop = True
