@@ -28,8 +28,8 @@
 
 ## 演示截图
 
-<img width="1396" height="1304" alt="image" src="https://github.com/user-attachments/assets/1d8318be-a70e-49ab-b62c-9b5930408211" />
-<img width="1396" height="1304" alt="image" src="https://github.com/user-attachments/assets/a97bb953-147a-4a7b-83e4-681db2971df2" />
+<img width="1727" height="1264" alt="image" src="https://github.com/user-attachments/assets/e94e82a9-30a9-40da-b137-996a3944e94f" />
+
 
 ## 快速开始（Docker Compose 部署）
 
