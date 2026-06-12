@@ -1725,10 +1725,21 @@ class BrowserManager:
             logger.warning(f"_refresh_cookie_for_lazy_load 异常: {e}")
             return False
 
-    async def fetch_chapter_info_via_page(self, book_id: str, user_name: str = "default") -> Optional[Dict[str, Any]]:
+    async def fetch_chapter_info_via_page(
+        self,
+        book_id: str,
+        user_name: str = "default",
+        fetch_only_first: bool = False,
+    ) -> Optional[Dict[str, Any]]:
         """【新方案 - 完全对齐 funnyzak/weread-bot】模拟浏览器访问书籍章节页,
         通过截获腾讯的"阅读心跳" /web/book/read 的 curl,
         从 curl body 的 `c` 字段提取真 chapter_id (chapterUid)。
+
+        2026-06-12 新增 fetch_only_first:
+          - True → 只抓首章心跳就返回(几秒),其他章节由调用方用 idx 占位补齐
+            (用户洞察:微信读书所有其他章节字符串不变,只有 idx 变,
+             不需要真抓所有 200 章,1-3 分钟/本 → 几秒/本)
+          - False → 走原翻页累积逻辑(慢但拿全)
 
         模型对齐:
           @dataclass class ChapterInfo:
@@ -1850,6 +1861,23 @@ class BrowserManager:
             if not captured_chapters:
                 logger.warning("fetch_chapter_info_via_page: 等 15s 仍无首章 read 心跳")
                 return None
+
+            # 2026-06-12: fetch_only_first=True → 拿首章就停,跳过翻页累积
+            if fetch_only_first:
+                logger.info(
+                    f"🌐 fetch_only_first 模式: {book_id[:12]} 只抓首章,跳过翻页累积"
+                )
+                first = list(captured_chapters.values())[0]
+                # 手动 remove_listener(try/finally 块还没结束,我们直接 return 触发 finally)
+                # 然后构造返回值。Python 保证:try 块 return → finally 跑 → 才真的 return
+                # 所以这里 return 一个 payload,finally 不会改它
+                return {
+                    "bookId": book_id,
+                    "chapters": [first],
+                    "first_chapter_uid": first["chapterUid"],
+                    "first_chapter_idx": first.get("chapterIdx", 0),
+                    "fetch_only_first": True,
+                }
 
             # ③ 模拟翻页累积 chapters
             # 上限:500 章(防一些超长书卡死,200-300 章主流)

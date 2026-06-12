@@ -114,6 +114,11 @@ class ApiReader:
         if cp and isinstance(cp, dict):
             self.data = dict(cp)
             self.data.pop("s", None)
+            # 2026-06-12: 对齐 funnyzak/weread-bot 不发 sm 字段
+            # sm 是抓包时那本书的"内容摘要"中文,跨书/跨会话时 sm 编码可能
+            # 双重 UTF-8 截断,腾讯服务端对乱码 sm 直接拒收 → 返回 {} → 空跑
+            # 此处彻底 pop sm,后续请求都不发这个字段
+            self.data.pop("sm", None)
             # 关键:运行时兜底,自动修复历史脏数据里的 mojibake sm 字段
             # (双层防御:browser.capture_and_save_curl 写盘前也修,但旧数据可能没经过那里)
             self._heal_payload_mojibake()
@@ -182,6 +187,55 @@ class ApiReader:
             stored_wrpa = ui.get("x_wrpa_0", "")
             if stored_wrpa:
                 self.headers["x-wrpa-0"] = stored_wrpa
+
+        # 2026-06-12: 主动删除 x-wrpa-0(对齐 debug 分支修复)
+        # x-wrpa-0 是腾讯网页端 JS 现算的风控 token,极可能是"一次性 + 带时间戳的 nonce"
+        # 本项目一直复用抓包时存下的旧值 = 每次请求都发同一个过期 token → 被风控判异常
+        # → /web/book/read 静默返回 {}(这正是 c/UA/referer 全对了仍失败的根因)
+        # 参考项目 funnyzak/weread-bot 根本不发这个 header 也能成功 → 并非必需
+        for _k in [k for k in self.headers if k.lower() == "x-wrpa-0"]:
+            del self.headers[_k]
+
+        # 2026-06-12: 清洗 headers 里的自动化指纹(对齐 debug 分支修复)
+        # 真实浏览器不会有 HeadlessChrome / python-httpx 这种 UA,腾讯按机器人判 → {}
+        self._normalize_browser_fingerprint()
+
+    # 真实 Chrome 指纹(对齐 funnyzak Chrome/131,保持自洽)
+    _REAL_UA = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    )
+    _REAL_SEC_CH_UA = '"Not_A Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"'
+
+    def _normalize_browser_fingerprint(self):
+        """清洗 headers 里的自动化指纹,让请求看起来来自真实 Chrome。
+
+        覆盖两类脏数据(无需用户重新扫码):
+          - user-agent 缺失 / 含 headless / 含 python-httpx → 换成真实 Chrome UA
+          - sec-ch-ua 含 "HeadlessChrome" → 换成 "Google Chrome" + 修正引号
+        """
+        ua_key = next((k for k in self.headers if k.lower() == "user-agent"), None)
+        ua_val = (self.headers.get(ua_key) or "") if ua_key else ""
+        ua_low = ua_val.lower()
+        if (not ua_val) or ("headless" in ua_low) or ("python-httpx" in ua_low):
+            if ua_key:
+                del self.headers[ua_key]
+            self.headers["user-agent"] = self._REAL_UA
+            logger.info(f"[ua] 修正 User-Agent → Chrome/131(原值含 headless/httpx/缺失)")
+
+        for k in list(self.headers.keys()):
+            kl = k.lower()
+            if kl == "sec-ch-ua" and "Headless" in str(self.headers[k]):
+                self.headers[k] = self._REAL_SEC_CH_UA
+                logger.debug("[ua] 清洗 sec-ch-ua 的 HeadlessChrome 痕迹")
+            elif kl == "sec-ch-ua-platform":
+                v = str(self.headers[k]).strip()
+                if v and not (v.startswith('"') and v.endswith('"')):
+                    self.headers[k] = '"Windows"'
+
+        # 冗余兜底:确保最终一定有 user-agent
+        if not any(k.lower() == "user-agent" for k in self.headers):
+            self.headers["user-agent"] = self._REAL_UA
 
     def _heal_payload_mojibake(self):
         """兜底:如果 self.data["sm"] 看起来是双重 UTF-8 编码(被 Latin-1 解读过),
@@ -289,6 +343,148 @@ class ApiReader:
             return f"凭证关键字段缺失或为占位符: {', '.join(errors)} (请重新捕获 curl)"
         return None
 
+    async def _ensure_chapter_json(self, book_id: str) -> None:
+        """
+        确保指定书在 shared/credentials/<self.user_name>/chapters/<book_id>.json 存在
+
+        2026-06-12: 用户洞察 — **微信读书所有其他章节字符串不变,只有 idx 变**,
+        所以 chapters 数组**只放 1 条**(`chapterIdx = N`),主循环通过
+        `_advance_chapter_index` 算 `max-min+1 = N` 即可。参考样本:
+          1d5322805cfd751d5aff1ea.json
+        流程:
+          1) 内存缓存命中 → 直接 return
+          2) 磁盘缓存有真 chapters(数组非空) → 直接 return
+          3) 都没有 → Playwright 只抓首章心跳
+             → 拿到 first_chapter_uid
+             → N = 用户设的 chapters_total / 默认 58
+             → 构造 1 条 chapter(chapterIdx=N, chapterUid=真 uid 或占位)
+             → save_chapters 落盘
+
+        失败不抛异常(非致命,主流程继续)。
+        """
+        if not book_id:
+            return
+        try:
+            from src.user_data_manager import user_data_manager as _udm
+            from datetime import datetime as _dt
+            # 1) 内存缓存命中
+            if book_id in self._book_chapter_cache:
+                return
+            # 2) 磁盘缓存有真 chapters(数组非空)→ 跳过
+            disk = _udm.load_chapters(self.user_name, book_id)
+            if disk and isinstance(disk, dict) and disk.get("chapters"):
+                return
+            # 3) 都没有 → 走 Playwright 只抓首章
+            CHAPTERS_TOTAL_DEFAULT = 58
+            user_total = None
+            if disk and isinstance(disk, dict) and isinstance(disk.get("chapters_total"), int):
+                if disk["chapters_total"] > 0:
+                    user_total = disk["chapters_total"]
+            N = user_total or CHAPTERS_TOTAL_DEFAULT
+
+            # 调 browser_manager 抓首章
+            from src.browser import browser_manager
+            first_info = await browser_manager.fetch_chapter_info_via_page(
+                book_id, user_name=self.user_name, fetch_only_first=True
+            )
+            first_uid = ""
+            first_idx = 0
+            if first_info and first_info.get("first_chapter_uid"):
+                first_uid = first_info["first_chapter_uid"]
+                first_idx = int(first_info.get("first_chapter_idx") or 1)
+
+            # 2026-06-12: 关键 — chapters 数组**只 1 条**,
+            # chapterIdx = N(用户设的总章节数),chapterUid = 真 uid 或空占位
+            # (主循环算 N = max(min) - min(min) + 1 = N-1+1 = N,正确)
+            # 格式参考 1d5322805cfd751d5aff1ea.json
+            if first_uid:
+                only_chapter = {
+                    "chapterUid": first_uid,
+                    "chapterIdx": N,
+                    "title": "",
+                }
+            else:
+                # 抓不到真 uid(浏览器没登录 / 该书未上架):用空 uid 占位
+                # 主循环会按 config 里用户填的 chapter_id 走,这里只保证 json 存在
+                only_chapter = {
+                    "chapterUid": "",
+                    "chapterIdx": N,
+                    "title": "",
+                }
+
+            payload = {
+                "bookId": book_id,
+                "chapters": [only_chapter],
+                "chapters_total": N,
+                "first_chapter_uid": first_uid,
+                "first_chapter_idx": N,
+                "user_set": user_total is not None,
+                "fetched_at": _dt.now().isoformat(),
+                "auto_generated": True,
+                "created_by": "ensure_chapter_json_fast",
+            }
+            if _udm.save_chapters(self.user_name, book_id, payload):
+                if first_uid:
+                    logger.info(
+                        f"[chapters] 补齐: {book_id[:12]} N={N} uid={first_uid[:16]}"
+                    )
+                else:
+                    logger.warning(
+                        f"[chapters] 补齐但未拿到真 uid: {book_id[:12]} N={N} "
+                        f"(浏览器未登录或书未上架)"
+                    )
+            # 写回内存缓存,免得主循环再懒加载
+            self._book_chapter_cache[book_id] = {
+                "chapters": [only_chapter],
+                "first_chapter_uid": first_uid,
+                "first_chapter_idx": N,
+            }
+        except Exception as e:
+            logger.debug(f"[chapters] 补齐失败(非致命, {book_id[:12]}): {e}")
+
+    async def _ensure_all_chapters_jsons(self) -> None:
+        """
+        2026-06-12: 每次阅读开始时,扫 config 里所有书,缺 json 就用 Playwright 抓
+        (用户反馈:之前会有书漏掉没有写入,且要求走真实浏览器心跳,不是占位)
+
+        注意:
+          - 串行 await,避免 Playwright 浏览器并发抓取互相干扰
+          - 每本书之间 sleep 1s,给微信读书服务器喘气
+        """
+        try:
+            books_cfg = config.get("reading.books", []) or []
+            if not books_cfg:
+                return
+            need_fetch = []
+            from src.user_data_manager import user_data_manager as _udm
+            for b in books_cfg:
+                bid = (b.get("book_id") or "").strip() if isinstance(b, dict) else ""
+                if not bid:
+                    continue
+                if bid in self._book_chapter_cache:
+                    continue
+                disk = _udm.load_chapters(self.user_name, bid)
+                if disk and isinstance(disk, dict) and disk.get("chapters"):
+                    continue
+                need_fetch.append(bid)
+            if not need_fetch:
+                logger.info(
+                    f"[chapters] 启动扫 {len(books_cfg)} 本,全部已有 json"
+                )
+                return
+            logger.info(
+                f"[chapters] 启动扫 {len(books_cfg)} 本,缺 {len(need_fetch)} 本 → "
+                f"用 Playwright 顺序补抓(只抓首章真 uid)"
+            )
+            import asyncio as _asyncio
+            for i, bid in enumerate(need_fetch):
+                await self._ensure_chapter_json(bid)
+                # 避免连抓被风控,除最后一本外都 sleep
+                if i < len(need_fetch) - 1:
+                    await _asyncio.sleep(2.0)
+        except Exception as e:
+            logger.debug(f"[chapters] 启动扫 books 失败(非致命): {e}")
+
     def _prepare_payload(self, last_time: int):
         """准备单次阅读请求的payload(对齐 weread-bot 协议)
 
@@ -298,6 +494,8 @@ class ApiReader:
           - ci 在主循环每轮被 _advance_chapter_index 推进过,这里直接用 self.last_chapter_index
         """
         self.data.pop("s", None)
+        # 2026-06-12: 双保险,每轮 payload 都不发 sm
+        self.data.pop("sm", None)
 
         # 同步进度:书/章节 (支持随机切书到任意已配置的书)
         if self.last_book_id:
@@ -478,14 +676,13 @@ class ApiReader:
         # 没刷新,腾讯一直拒收。upstream 是无条件刷新的——我们也照做。
         if not data:
             logger.warning(
-                f"API响应空 dict(无任何字段),触发cookie刷新: "
-                f"可能 wr_skey 已过期或 x-wrpa-0 token 失效"
+                f"[api] 响应空 dict,标记需刷 wr_skey(可能 skey 过期 / 抓包 sm/x-wrpa-0 失效)"
             )
             self._needs_refresh = True
             return False
 
         # 走到这里:有数据但没有 succ 字段 → 真正的异常,WARNING + 触发 cookie 刷新
-        logger.warning(f"API响应无succ字段,触发cookie刷新: keys={list(data.keys())}")
+        logger.warning(f"[api] 响应无 succ 字段,标记需刷 wr_skey: keys={list(data.keys())[:5]}")
         self._needs_refresh = True
         return False
 
@@ -514,6 +711,8 @@ class ApiReader:
         self.failed_reads = 0
         self.books_read = 0
         self.errors = {}
+        # 2026-06-12: 本会话已"出错重抓"过的书(避免对同一本无限重抓)
+        self._refetched_books = set()
         self._last_progress_time = 0
         self._last_progress_log_time = 0
         self._needs_refresh = False
@@ -521,6 +720,20 @@ class ApiReader:
         self._last_logged_chapter = ""
 
         self._fail_reason = ""
+
+        # 2026-06-12: 对齐 funnyzak/weread-bot start_reading_session 入口
+        # 循环开始前先主动 refresh 一次 cookie,把 captured_headers 里那个 stale wr_skey
+        # 提前换成 fresh 的。否则首次请求直接踩 stale skey → 静默空 dict
+        # → 进入诡异"刷新 wr_skey 也无用"循环。预刷失败不致命,继续
+        try:
+            logger.info("[cookie] 启动前预刷 wr_skey(对齐 funnyzak)")
+            pre_refresh_ok = await self._refresh_cookie()
+            if pre_refresh_ok:
+                logger.info("[cookie] 预刷成功,首次请求将用 fresh wr_skey")
+            else:
+                logger.warning("[cookie] 预刷失败(非致命,继续运行)")
+        except Exception as _e:
+            logger.warning(f"[cookie] 预刷异常(非致命,继续运行): {_e}")
 
         # 延迟 import browser_manager (避免循环引用),且不依赖名字查找
         try:
@@ -560,6 +773,10 @@ class ApiReader:
                 elapsed_seconds=0,
                 errors={"identity_invalid": identity_err},
             )
+
+        # 2026-06-12: 阅读开始时,扫 config 里所有书,缺 chapters json 就用 Playwright 补抓
+        # (用户要求:用模拟浏览器拿 /web/book/read 心跳后写 json,不再有书漏)
+        await self._ensure_all_chapters_jsons()
 
         mode = reading_config.get("mode", "smart_random")
         interval_str = reading_config.get("reading_interval", "30-48")
@@ -749,6 +966,13 @@ class ApiReader:
                                 f"API响应模糊已连续 {self._consecutive_none} 次"
                                 f"(空 dict/风控临时响应/抓包数据损坏)"
                             )
+                        # 2026-06-12: 出错重抓 — 连续 3 次空响应且这本书本会话还没重抓过
+                        # 多半是 c(chapterUid) 失效,失效缓存用模拟浏览器重抓真 c
+                        if (self._consecutive_none == 3
+                                and self.last_book_id
+                                and self.last_book_id not in self._refetched_books):
+                            self._refetched_books.add(self.last_book_id)
+                            await self._refetch_chapter_on_error(self.last_book_id)
                         # 熔断:连续 N 次空响应 → 判定 API 不可用
                         if self._consecutive_none >= none_breaker_threshold:
                             self._fail_reason = (
@@ -777,42 +1001,31 @@ class ApiReader:
                             self.should_stop = True
                             _mark_relogin("登录已失效,需要在右上角扫码重新登录")
                             break
-                        # 检查是否需要先 refresh cookie 重试一次
-                        did_retry = False
-                        if self._needs_refresh and not refresh_attempted:
-                            refresh_attempted = True
-                            refresh_ok = await self._refresh_cookie()
-                            if refresh_ok:
-                                logger.info("cookie刷新后重试请求...")
-                                response, _ = await self.http_client.post(
-                                    self.READ_URL,
-                                    headers=self.headers,
-                                    cookies=self.cookies,
-                                    json_data=self.data,
-                                )
-                                retry_check = await self._check_response(response)
-                                if retry_check is True:
-                                    self.total_reads += 1
-                                    last_time = int(time.time())
-                                    self._consecutive_failures = 0
-                                    did_retry = True
-                                elif retry_check is None:
-                                    # 重试时也遇到空 dict——同样不计入失败
-                                    logger.debug("重试响应模糊(空 dict),跳过")
-                                    did_retry = True  # 算"已尝试",不触发 _consecutive_failures 自增
-                                else:
+                        did_retry = False  # 2026-06-12: 保留 did_retry 变量供下方判断(现在不在这里重试了)
+                        # 2026-06-12: 对齐 funnyzak/weread-bot 行为 — 不立即重试
+                        # funnyzak 在 _handle_protocol_response 里仅调一次 _refresh_cookie()
+                        # 然后 return False,主循环走 failed_reads+=1 + sleep 25-35s,
+                        # 下一轮才重新发请求。5s 内连续发两次同样特征请求 = 加重风控,
+                        # 这正是本项目之前"刷新 wr_skey 也无用,反复空 dict"的根因。
+                        # 这里只刷 cookie,不重试,等主循环下一轮自然 sleep 之后再说
+                        if self._needs_refresh:
+                            if not refresh_attempted:
+                                refresh_attempted = True
+                                refresh_ok = await self._refresh_cookie()
+                                if not refresh_ok:
                                     self.failed_reads += 1
                                     self._needs_refresh = False
                                     self._consecutive_failures += 1
-                                    logger.warning(f"API重试失败: {str(response.json())[:100]}")
-                            else:
-                                self.failed_reads += 1
-                                self._needs_refresh = False
-                                logger.warning("Cookie刷新失败,记录为失败请求")
-                                self._fail_reason = "cookie_refresh_failed: wr_skey 失效,请重新扫码登录"
-                                self.should_stop = True
-                                _mark_relogin("wr_skey 失效,请在右上角扫码重新登录")
-                                break
+                                    logger.warning("[cookie] 刷新失败,记为失败请求")
+                                    self._fail_reason = "cookie_refresh_failed: wr_skey 失效,请重新扫码登录"
+                                    self.should_stop = True
+                                    _mark_relogin("wr_skey 失效,请在右上角扫码重新登录")
+                                    break
+                                # refresh 成功,但本轮不再重试,等下一轮自然用新 cookie
+                                logger.info("[cookie] 已刷新 wr_skey(下一轮生效,不立即重试防风控)")
+                                # 2026-06-12: refresh 成功算"已尝试",不计入 failed_reads/consecutive_failures
+                                # 等下一轮用新 cookie 重发
+                                did_retry = True
                         if not did_retry:
                             self.failed_reads += 1
                             self._consecutive_failures += 1
@@ -1148,6 +1361,43 @@ class ApiReader:
             f"(Playwright 截获 /web/book/read 心跳失败)"
         )
         return None
+
+    async def _refetch_chapter_on_error(self, book_id: str) -> bool:
+        """
+        2026-06-12: 读取出错时,失效该书章节缓存(内存+磁盘)并用模拟浏览器重抓一次真 c。
+        平时读缓存不算,只有「首次无缓存」和「这本书出错」才真正驱动浏览器。
+
+        配合主循环"连续 3 次空响应"触发调用,避免对同一本无限重抓(用 _refetched_books 守卫)。
+        """
+        if not book_id:
+            return False
+        logger.info(f"[chapters] 重抓(连续空响应后): {book_id[:12]} → 失效缓存 + Playwright 抓真 c")
+        # 1) 清内存 + 磁盘缓存 + 失败标记,确保 _ensure_chapter_for_book 会真正重抓
+        self._book_chapter_cache.pop(book_id, None)
+        if hasattr(self, "_lazy_load_failed"):
+            self._lazy_load_failed.discard(book_id)
+        try:
+            from src.user_data_manager import user_data_manager
+            user_data_manager.delete_chapters(self.user_name, book_id)
+        except Exception as e:
+            logger.debug(f"[chapters] 删除磁盘缓存失败(非致命): {e}")
+        # 2) 重抓(内部会把新结果写回磁盘,下次直接读缓存)
+        fetched = await self._ensure_chapter_for_book(book_id)
+        if fetched and fetched.get("first_chapter_uid"):
+            new_c = fetched["first_chapter_uid"]
+            self.last_chapter_id = new_c
+            self.last_chapter_index = fetched.get("first_chapter_idx", 0)
+            if hasattr(self, "_book_ci_counters"):
+                self._book_ci_counters[book_id] = self.last_chapter_index or 0
+            self._consecutive_none = 0  # 给新 c 一个干净的重试窗口
+            logger.info(
+                f"[chapters] 重抓成功: {book_id[:12]} c={str(new_c)[:16]} idx={self.last_chapter_index}"
+            )
+            return True
+        logger.warning(
+            f"[chapters] 重抓失败: {book_id[:12]} 浏览器仍拿不到真 c(可能该书无权/未上架)"
+        )
+        return False
 
     async def _fetch_chapter_via_playwright(self, book_id: str) -> Optional[Dict[str, Any]]:
         """【主方案】调 browser_manager.fetch_chapter_info_via_page 拿章节。"""

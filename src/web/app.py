@@ -470,29 +470,91 @@ async def get_api_reading_progress():
 # === 书籍阅读进度 ===
 # 优先用 api_reader 实例的 _book_ci_counters(每本书独立的 ci 计数)
 # 进程重启后会丢(但下次跑起来又会自动重计),够用
+#
+# 2026-06-12 优化:
+#   - chapters_total 写死 = 58(用户要求每本书都默认 58)
+#   - 缺失 json 时自动生成一个(chapters_total=58 的占位)
+#   - 用户可在 web 端书籍卡手动改 chapters_total (POST 端点),
+#     改值存磁盘 chapters json 的 chapters_total 字段,优先级最高
 @app.get("/api/book-progress")
 async def book_progress(book_id: str = ""):
-    """返回指定书的当前 ci(章节顺序号)"""
+    """返回指定书的当前 ci(章节顺序号)+ 总章节数(默认 58)"""
+    # 2026-06-12: 总章节数写死 58
+    CHAPTERS_TOTAL_DEFAULT = 58
+
     if not book_id.strip():
-        return JSONResponse({"book_id": "", "ci": 0, "chapters_total": 0})
+        return JSONResponse({"book_id": "", "ci": 0, "chapters_total": CHAPTERS_TOTAL_DEFAULT})
     ci = 0
-    chapters_total = 0
+    chapters_total = CHAPTERS_TOTAL_DEFAULT  # 默认 58
+    chapters_total_user_set = None  # 用户手动改的值
+    chapters_json_path = None
+    cached_for_response = None  # 整份磁盘缓存,POST 端点写回时复用
     try:
         api = session_manager.api_reader if hasattr(session_manager, 'api_reader') else None
         if api and getattr(api, '_book_ci_counters', None):
             ci = api._book_ci_counters.get(book_id, 0)
-        # 章节总数:从磁盘缓存拿(任意用户的 chapters 缓存即可)
+        # 找磁盘缓存(任意用户的 chapters 缓存即可)
         import glob as _glob, json as _json
         from pathlib import Path as _Path
+        from datetime import datetime as _dt
+        # 优先拿第一个用户的(任意用户都行)
+        # 2026-06-12: 找到第一个 json 就 break(避免后面的覆盖前面的 chapters_total)
         for p in _glob.glob("shared/credentials/*/chapters/" + book_id + ".json"):
+            chapters_json_path = p
             try:
                 with open(p, "r", encoding="utf-8") as f:
                     cached = _json.load(f)
-                    if cached and cached.get("chapters"):
-                        chapters_total = len(cached["chapters"])
-                        break
             except Exception:
                 continue
+            cached_for_response = cached
+            if cached and isinstance(cached.get("chapters"), list) and cached.get("chapters"):
+                # 2026-06-12: 磁盘有真实 chapters → 用实际长度(不再 max 58,用户可超过默认)
+                # 兜底:微信读书有时返回 <20 章节的脏数据,视为异常,回退到 58
+                if len(cached["chapters"]) < 20:
+                    logger.warning(
+                        f"⚠️ 磁盘 chapters 数 <20 视为脏数据,回退默认 58: "
+                        f"{book_id[:12]} (len={len(cached['chapters'])})"
+                    )
+                    chapters_total = CHAPTERS_TOTAL_DEFAULT
+                else:
+                    chapters_total = len(cached["chapters"])
+            break
+
+        # 用户手动改的 chapters_total 优先级最高(任何 disk 缓存里读到的)
+        if cached_for_response and isinstance(cached_for_response.get("chapters_total"), int):
+            ut = cached_for_response["chapters_total"]
+            if ut > 0:
+                chapters_total_user_set = ut
+                chapters_total = ut
+
+        # 2026-06-12: 缺失 json 时自动生成一个占位文件
+        # (用户要求:每本书必须有 chapters json,缺失就重建)
+        if chapters_json_path is None:
+            try:
+                from src.user_data_manager import user_data_manager as _udm
+                # 默认用户 = 当前用户,或 "default"
+                user_name = "default"
+                try:
+                    if api and getattr(api, 'user_name', None):
+                        user_name = api.user_name
+                except Exception:
+                    pass
+                placeholder = {
+                    "bookId": str(book_id),
+                    "chapters": [],
+                    "chapters_total": CHAPTERS_TOTAL_DEFAULT,
+                    "first_chapter_uid": "",
+                    "first_chapter_idx": 0,
+                    "current_ci": 0,
+                    "fetched_at": _dt.now().isoformat(),
+                    "auto_generated": True,
+                }
+                if _udm.save_chapters(user_name, book_id, placeholder):
+                    logger.info(
+                        f"[chapters] 自动生成 json (N=58): {book_id[:12]}"
+                    )
+            except Exception as e:
+                logger.debug(f"[chapters] 自动生成失败(非致命): {e}")
     except Exception:
         pass
     return JSONResponse({
@@ -500,6 +562,123 @@ async def book_progress(book_id: str = ""):
         "ci": ci,
         "chapters_total": chapters_total,
     })
+
+
+@app.post("/api/book-progress")
+async def update_book_progress(request: Request):
+    """
+    更新书籍的 chapters_total(用户在 web 端书籍卡手动改)
+
+    Body JSON: {"book_id": "<id>", "chapters_total": <int>}
+    - chapters_total < 1 → 当作"清空用户设置",回退到默认/磁盘
+    - 任意用户的 chapters 缓存均可写(优先用第一个找到的)
+    - 缺失时自动创建占位 json
+    """
+    CHAPTERS_TOTAL_DEFAULT = 58
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid JSON body"}, status_code=400)
+    book_id = str(body.get("book_id") or "").strip()
+    if not book_id:
+        return JSONResponse({"ok": False, "error": "missing book_id"}, status_code=400)
+    raw_total = body.get("chapters_total", None)
+    if raw_total is None or raw_total == "":
+        return JSONResponse({"ok": False, "error": "missing chapters_total"}, status_code=400)
+    try:
+        new_total = int(raw_total)
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "chapters_total must be int"}, status_code=400)
+    if new_total < 1:
+        new_total = 0  # 0 / 负数 = 清空用户设置
+
+    try:
+        from src.user_data_manager import user_data_manager as _udm
+        import glob as _glob, json as _json
+        from datetime import datetime as _dt
+
+        # 找现存 chapters json(任意用户都行)
+        existing_path = None
+        existing_payload = None
+        for p in _glob.glob("shared/credentials/*/chapters/" + book_id + ".json"):
+            existing_path = p
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    existing_payload = _json.load(f)
+            except Exception:
+                existing_payload = None
+            break
+
+        # 决定写哪个 user 的目录 + payload
+        # 优先写到 existing_path 所在的 user(避免给其他用户生成重复 json)
+        if existing_path and existing_payload is not None:
+            # 从 path 提取 user_name
+            # 形如 shared/credentials/<user>/chapters/<book_id>.json
+            parts = existing_path.replace("\\", "/").split("/")
+            # ['shared', 'credentials', '<user>', 'chapters', '<book_id>.json']
+            user_name = parts[2] if len(parts) >= 5 else "default"
+            payload = dict(existing_payload)  # 复制
+        else:
+            # 不存在 → 写到当前 api_reader 的 user(或 default)
+            api = session_manager.api_reader if hasattr(session_manager, 'api_reader') else None
+            user_name = "default"
+            try:
+                if api and getattr(api, 'user_name', None):
+                    user_name = api.user_name
+            except Exception:
+                pass
+            payload = {
+                "bookId": str(book_id),
+                "chapters": [],
+                "first_chapter_uid": "",
+                "first_chapter_idx": 0,
+                "current_ci": 0,
+            }
+
+        # 应用新值
+        if new_total > 0:
+            payload["chapters_total"] = new_total
+            payload["user_set"] = True
+            # 2026-06-12: 同步把 chapters 数组里那条(唯一一条)的 chapterIdx 改成 N
+            # 格式参考 1d5322805cfd751d5aff1ea.json
+            # (主循环算 N = max(min) - min(min) + 1 = N-1+1 = N,正确)
+            existing_chapters = payload.get("chapters") or []
+            preserved_uid = payload.get("first_chapter_uid") or ""
+            if existing_chapters and isinstance(existing_chapters[0], dict):
+                existing_chapters[0]["chapterIdx"] = new_total
+            else:
+                # chapters 数组空(或不存在)→ 补一条
+                existing_chapters = [{
+                    "chapterUid": preserved_uid,
+                    "chapterIdx": new_total,
+                    "title": "",
+                }]
+            payload["chapters"] = existing_chapters
+            payload["first_chapter_idx"] = new_total
+        else:
+            # 清空用户设置:回退到默认 58(或磁盘 chapters 实际长度,跟 GET 逻辑一致)
+            payload.pop("chapters_total", None)
+            payload.pop("user_set", None)
+            # 不动 chapters 数组本身(让 _advance_chapter_index 重新算 N)
+        payload["fetched_at"] = _dt.now().isoformat()
+        payload["updated_at"] = _dt.now().isoformat()
+
+        ok = _udm.save_chapters(user_name, book_id, payload)
+        if not ok:
+            return JSONResponse({"ok": False, "error": "save_chapters failed"}, status_code=500)
+
+        logger.info(
+            f"[chapters] web 端更新: {book_id[:12]} N={new_total or '默认'}"
+        )
+        return JSONResponse({
+            "ok": True,
+            "book_id": book_id,
+            "chapters_total": new_total if new_total > 0 else CHAPTERS_TOTAL_DEFAULT,
+            "user_set": new_total > 0,
+        })
+    except Exception as e:
+        logger.exception(f"[chapters] web 端更新异常: book_id={book_id[:12]} err={e}")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
 @app.get("/api-reading-logs")

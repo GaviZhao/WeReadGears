@@ -367,6 +367,13 @@
         .book-card-id { font-size: 11px; color: var(--text-3); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .book-card-progress { font-size: 11px; color: var(--primary); display: flex; align-items: center; gap: 4px; }
         .book-card-progress .progress-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); display: inline-block; }
+        /* 2026-06-12: 章节数可编辑输入框 */
+        .book-card-progress .progress-total-input { width: 36px; height: 18px; padding: 0 4px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--primary); background: var(--bg-1); border: 1px solid var(--border); border-radius: 3px; text-align: center; outline: none; -moz-appearance: textfield; }
+        .book-card-progress .progress-total-input::-webkit-outer-spin-button, .book-card-progress .progress-total-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .book-card-progress .progress-total-input:hover { border-color: var(--primary); }
+        .book-card-progress .progress-total-input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(46,125,50,0.15); }
+        .book-card-progress .progress-total-input.saving { opacity: 0.5; }
+        .book-card-progress .progress-total-input.saved { border-color: var(--primary); background: rgba(46,125,50,0.05); }
         .book-card-footer { padding: 8px 12px; border-top: 1px solid var(--border); display: flex; gap: 6px; }
         .book-card-footer .book-card-del { flex: 1; height: 26px; padding: 0 8px; font-size: 12px; background: transparent; color: var(--text-2); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; transition: all 0.15s; display: inline-flex; align-items: center; justify-content: center; }
         .book-card-footer .book-card-del:hover { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-soft); }
@@ -2052,6 +2059,11 @@ function renderBooks() {
                 '<div class="book-card-progress" data-bid="' + esc(bid) + '">' +
                     '<span class="progress-dot"></span>' +
                     '<span class="progress-text">尚未阅读</span>' +
+                    '<input type="number" class="progress-total-input" min="1" value="58" ' +
+                        'data-bid="' + esc(bid) + '" ' +
+                        'title="点击修改章节总数(空 = 用默认 58,无上限)" ' +
+                        'onchange="updateBookTotal(this)" ' +
+                        'onkeydown="if(event.key===\'Enter\'){this.blur();}\"> ' +
                 '</div>' +
             '</div>' +
             '<div class="book-card-footer">' +
@@ -2115,12 +2127,69 @@ function loadBookProgress(book_id) {
             }
             var textEl = el.querySelector('.progress-text');
             if (textEl) textEl.textContent = text;
+            // 2026-06-12: 同步章节数到 input(只覆盖未聚焦/未修改过的,避免抢用户输入)
+            var totalInput = el.querySelector('.progress-total-input');
+            if (totalInput && total > 0 && document.activeElement !== totalInput) {
+                // 用 dataset.userSet 标记是否已被用户主动改过;为 true 时不再被 GET 自动覆盖
+                if (totalInput.dataset.userSet !== '1') {
+                    totalInput.value = total;
+                }
+            }
         })
         .catch(function() {});
+}
+
+// 2026-06-12: 用户在书籍卡手动改 chapters_total
+// onchange 触发(失焦/Enter 时)→ POST /api/book-progress 落盘
+function updateBookTotal(input) {
+    var book_id = input.dataset.bid;
+    if (!book_id) return;
+    var raw = String(input.value || '').trim();
+    var total = parseInt(raw, 10);
+    if (!raw || isNaN(total) || total < 1) {
+        // 空/非法 → 视为清空,用 0 传给后端表示"用默认"
+        total = 0;
+    }
+    input.classList.add('saving');
+    fetch('/api/book-progress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ book_id: book_id, chapters_total: total })
+    })
+    .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, j: j }; }); })
+    .then(function(res) {
+        input.classList.remove('saving');
+        if (res.ok && res.j && res.j.ok) {
+            input.classList.add('saved');
+            input.dataset.userSet = total > 0 ? '1' : '0';
+            // 用后端返回的最终值回填(避免本地和服务端漂移)
+            if (res.j.chapters_total && total > 0) {
+                input.value = res.j.chapters_total;
+            } else if (total === 0) {
+                // 清空后回退到 GET 的逻辑:这里先填 58 占位(下次 loadBookProgress 会刷)
+                input.value = '';
+                input.placeholder = '58';
+            }
+            // 200ms 后清掉 saved 高亮
+            setTimeout(function() { input.classList.remove('saved'); }, 600);
+            // 同步刷新 progress 文本
+            loadBookProgress(book_id);
+        } else {
+            var err = (res.j && res.j.error) || ('HTTP ' + (res.j ? 'fail' : 'error'));
+            input.classList.remove('saved');
+            input.classList.add('saving');
+            alert('保存章节数失败: ' + err);
+        }
+    })
+    .catch(function(e) {
+        input.classList.remove('saving');
+        alert('保存章节数失败: ' + e);
+    });
 }
 window.addBook = addBook;
 window.removeBook = removeBook;
 window.updateBook = updateBook;
+window.updateBookTotal = updateBookTotal;
 
 // === 书籍搜索弹窗 ===
 // searchBookModalIndex:

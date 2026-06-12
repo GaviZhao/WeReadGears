@@ -63,6 +63,11 @@ class UserSession:
 
         try:
             self.api_reader = ApiReader(credentials, user_name=self.user_name)
+            # 2026-06-12: 每次阅读开始时 idx 从 1 开始
+            # 清空内存 _book_ci_counters(磁盘 current_ci 字段本来就没维护,
+            # save_chapters 写初值 0 之后没人改,实际 ci 累加全在内存)
+            self.api_reader._book_ci_counters = {}
+            logger.info(f"[ci] 重置会话 ci 计数: user={self.user_name} (每本书从 idx=1 开始)")
             result = await self.api_reader.start_reading(on_progress=progress_callback)
 
             real_name = self.user_config.get("display_name", "") or credentials.user_name or self.user_name
