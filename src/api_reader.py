@@ -1001,7 +1001,6 @@ class ApiReader:
                             self.should_stop = True
                             _mark_relogin("登录已失效,需要在右上角扫码重新登录")
                             break
-                        did_retry = False  # 2026-06-12: 保留 did_retry 变量供下方判断(现在不在这里重试了)
                         # 2026-06-12: 对齐 funnyzak/weread-bot 行为 — 不立即重试
                         # funnyzak 在 _handle_protocol_response 里仅调一次 _refresh_cookie()
                         # 然后 return False,主循环走 failed_reads+=1 + sleep 25-35s,
@@ -1023,13 +1022,15 @@ class ApiReader:
                                     break
                                 # refresh 成功,但本轮不再重试,等下一轮自然用新 cookie
                                 logger.info("[cookie] 已刷新 wr_skey(下一轮生效,不立即重试防风控)")
-                                # 2026-06-12: refresh 成功算"已尝试",不计入 failed_reads/consecutive_failures
-                                # 等下一轮用新 cookie 重发
-                                did_retry = True
-                        if not did_retry:
-                            self.failed_reads += 1
-                            self._consecutive_failures += 1
-                            logger.warning(f"API响应无效 (连续失败 {self._consecutive_failures}/{circuit_breaker_threshold})")
+                            # 2026-06-12: 跟 debug 分支对齐 — 无条件清 needs_refresh
+                            # (debug 分支 L78: self._needs_refresh = False 写在 if 块外)
+                            self._needs_refresh = False
+                        # 2026-06-12: 跟 debug 分支对齐 — 无条件 += 失败计数
+                        # debug 分支:cookie 刷成功也计入失败(空 dict 本来就是异常信号,
+                        # circuit breaker 累计 N 次就该切模拟模式)
+                        self.failed_reads += 1
+                        self._consecutive_failures += 1
+                        logger.warning(f"API响应无效 (连续失败 {self._consecutive_failures}/{circuit_breaker_threshold})")
 
                         # Circuit breaker:连续失败达到阈值,立刻切到浏览器模式
                         if self._consecutive_failures >= circuit_breaker_threshold:
@@ -1494,13 +1495,18 @@ class ApiReader:
             cached = self._book_chapter_cache.get(book_id) or {}
             chapters = cached.get("chapters") or []
             if chapters:
-                # 总章节数:取最大 chapterIdx 减最小 chapterIdx + 1(章节 idx 可能不从 1 开始)
-                idxs = [c.get("chapterIdx", 0) for c in chapters if c.get("chapterIdx") is not None]
+                # 2026-06-12: 修 max-min+1 公式在"单条 chapterIdx=N"格式下的 bug
+                # 旧公式假设 chapters 数组含完整 1..N 序列 → max-min+1 = N
+                # 新格式(参考 1d5322805cfd751d5aff1ea.json)只有 1 条 chapterIdx=N
+                #   → max==min, max-min+1 = 0+1 = 1 ❌ 应该是 N
+                # 改用"取最大 chapterIdx"作为总章节数(章节 idx 永远从 1 开始递增)
+                idxs = [c.get("chapterIdx", 0) for c in chapters
+                        if isinstance(c.get("chapterIdx"), int) and c.get("chapterIdx") > 0]
                 if idxs:
-                    total = max(idxs) - min(idxs) + 1
+                    total = max(idxs)  # 不用 max-min+1(单条格式下会算成 1)
                     if total > 0 and cur > total:
-                        # 回到第一章(用最小 idx 重读),记一个日志便于排错
-                        cur = min(idxs)
+                        # 回到第一章(用 1 重读,假设 idx 从 1 开始)
+                        cur = 1
                         if not hasattr(self, "_book_loop_counters"):
                             self._book_loop_counters = {}
                         self._book_loop_counters[book_id] = self._book_loop_counters.get(book_id, 0) + 1

@@ -498,8 +498,23 @@ async def book_progress(book_id: str = ""):
         from pathlib import Path as _Path
         from datetime import datetime as _dt
         # 优先拿第一个用户的(任意用户都行)
-        # 2026-06-12: 找到第一个 json 就 break(避免后面的覆盖前面的 chapters_total)
-        for p in _glob.glob("shared/credentials/*/chapters/" + book_id + ".json"):
+        # 2026-06-12 修:Python glob.glob 顺序不稳定(可能拿到 default/ 占位 json 而不是 Gavi/ 真数据),
+        # 改用:1) 排序确保 Gavi 优先 2) 优先选 chapters 非空的 json
+        _candidates = sorted(_glob.glob("shared/credentials/*/chapters/" + book_id + ".json"))
+        # 优先级:chapters 非空 + 含真 uid 的 json(说明是用户真实数据,不是占位)
+        # 用 (has_data, -uid_len) 排序,真数据排前
+        def _rank(p: str) -> tuple:
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    _c = _json.load(f)
+                if _c and isinstance(_c.get("chapters"), list) and _c["chapters"]:
+                    first_uid = _c["chapters"][0].get("chapterUid", "") or ""
+                    return (0, -len(first_uid), p)
+            except Exception:
+                pass
+            return (1, 0, p)
+        _ordered = sorted(_candidates, key=_rank)
+        for p in _ordered:
             chapters_json_path = p
             try:
                 with open(p, "r", encoding="utf-8") as f:
@@ -508,16 +523,24 @@ async def book_progress(book_id: str = ""):
                 continue
             cached_for_response = cached
             if cached and isinstance(cached.get("chapters"), list) and cached.get("chapters"):
-                # 2026-06-12: 磁盘有真实 chapters → 用实际长度(不再 max 58,用户可超过默认)
-                # 兜底:微信读书有时返回 <20 章节的脏数据,视为异常,回退到 58
-                if len(cached["chapters"]) < 20:
-                    logger.warning(
-                        f"⚠️ 磁盘 chapters 数 <20 视为脏数据,回退默认 58: "
-                        f"{book_id[:12]} (len={len(cached['chapters'])})"
-                    )
-                    chapters_total = CHAPTERS_TOTAL_DEFAULT
+                # 2026-06-12: 磁盘有真实 chapters
+                # 新格式(参考 1d5322805cfd751d5aff1ea.json)只有 1 条 chapterIdx=N,
+                # 旧逻辑 len(chapters) < 20 触发回退会误伤 → 改为:
+                #   - chapters_total 字段已设(用户明示 N) → 不再判 len,信任字段
+                #   - chapters_total 字段没设(原始抓的全量列表) → 用 len,兜底 <20 当脏数据
+                has_user_total = isinstance(cached.get("chapters_total"), int) and cached["chapters_total"] > 0
+                if has_user_total:
+                    # 用户已明示 N → 跳过 len 校验,直接 trust chapters_total
+                    pass
                 else:
-                    chapters_total = len(cached["chapters"])
+                    if len(cached["chapters"]) < 20:
+                        logger.warning(
+                            f"⚠️ 磁盘 chapters 数 <20 视为脏数据,回退默认 58: "
+                            f"{book_id[:12]} (len={len(cached['chapters'])})"
+                        )
+                        chapters_total = CHAPTERS_TOTAL_DEFAULT
+                    else:
+                        chapters_total = len(cached["chapters"])
             break
 
         # 用户手动改的 chapters_total 优先级最高(任何 disk 缓存里读到的)
@@ -527,34 +550,14 @@ async def book_progress(book_id: str = ""):
                 chapters_total_user_set = ut
                 chapters_total = ut
 
-        # 2026-06-12: 缺失 json 时自动生成一个占位文件
-        # (用户要求:每本书必须有 chapters json,缺失就重建)
+        # 2026-06-12: 缺失 json 时**不再自动生成占位**(用户严禁创建 default 目录)
+        # 真实数据由 _ensure_chapter_json 在 start_reading 入口用 Playwright 抓取并落盘
+        # GET 端点只读,查不到就返回 N=58 默认值(chapters_total_user_set=False)
+        # 真正想生成 json,得在 Web UI 触发阅读开始
         if chapters_json_path is None:
-            try:
-                from src.user_data_manager import user_data_manager as _udm
-                # 默认用户 = 当前用户,或 "default"
-                user_name = "default"
-                try:
-                    if api and getattr(api, 'user_name', None):
-                        user_name = api.user_name
-                except Exception:
-                    pass
-                placeholder = {
-                    "bookId": str(book_id),
-                    "chapters": [],
-                    "chapters_total": CHAPTERS_TOTAL_DEFAULT,
-                    "first_chapter_uid": "",
-                    "first_chapter_idx": 0,
-                    "current_ci": 0,
-                    "fetched_at": _dt.now().isoformat(),
-                    "auto_generated": True,
-                }
-                if _udm.save_chapters(user_name, book_id, placeholder):
-                    logger.info(
-                        f"[chapters] 自动生成 json (N=58): {book_id[:12]}"
-                    )
-            except Exception as e:
-                logger.debug(f"[chapters] 自动生成失败(非致命): {e}")
+            logger.debug(
+                f"[chapters] 缺失 json(不自动生成): {book_id[:12]},默认 N={CHAPTERS_TOTAL_DEFAULT}"
+            )
     except Exception:
         pass
     return JSONResponse({
@@ -598,9 +601,21 @@ async def update_book_progress(request: Request):
         from datetime import datetime as _dt
 
         # 找现存 chapters json(任意用户都行)
+        # 2026-06-12 修:Python glob.glob 顺序不稳定(Windows/Linux 都可能 default 优先),
+        # 必须显式排序,避免 web 端改章节数时把已有 Gavi/<bid>.json 跳过,创建空 default/<bid>.json
         existing_path = None
         existing_payload = None
-        for p in _glob.glob("shared/credentials/*/chapters/" + book_id + ".json"):
+        candidates = sorted(_glob.glob("shared/credentials/*/chapters/" + book_id + ".json"))
+        # 优先级:当前 api_reader.user_name 匹配的目录 > 字母序最前的 > 其余
+        try:
+            _current_user = getattr(session_manager.api_reader, "user_name", "") or ""
+        except Exception:
+            _current_user = ""
+        ordered = sorted(
+            candidates,
+            key=lambda p: (f"/{_current_user}/" not in p.replace("\\", "/"), p),
+        )
+        for p in ordered:
             existing_path = p
             try:
                 with open(p, "r", encoding="utf-8") as f:
@@ -610,18 +625,20 @@ async def update_book_progress(request: Request):
             break
 
         # 决定写哪个 user 的目录 + payload
-        # 优先写到 existing_path 所在的 user(避免给其他用户生成重复 json)
+        # 2026-06-12:严禁创建 "default" 目录。user_name 必须从 existing_path 解析,
+        # 或从当前 api_reader.user_name 拿 —— 两个都拿不到就 400 报错,绝不写。
+        user_name = ""
         if existing_path and existing_payload is not None:
             # 从 path 提取 user_name
             # 形如 shared/credentials/<user>/chapters/<book_id>.json
             parts = existing_path.replace("\\", "/").split("/")
             # ['shared', 'credentials', '<user>', 'chapters', '<book_id>.json']
-            user_name = parts[2] if len(parts) >= 5 else "default"
+            if len(parts) >= 5 and parts[2] and parts[2] != "default":
+                user_name = parts[2]
             payload = dict(existing_payload)  # 复制
         else:
-            # 不存在 → 写到当前 api_reader 的 user(或 default)
+            # 不存在 → 尝试用当前 api_reader 的 user
             api = session_manager.api_reader if hasattr(session_manager, 'api_reader') else None
-            user_name = "default"
             try:
                 if api and getattr(api, 'user_name', None):
                     user_name = api.user_name
@@ -634,6 +651,14 @@ async def update_book_progress(request: Request):
                 "first_chapter_idx": 0,
                 "current_ci": 0,
             }
+
+        # 2026-06-12: 守卫 —— user_name 仍为空 / "default" → 400 拒绝
+        # 原因:配置没用户、磁盘没该书、session 没跑 → 都不该猜
+        if not user_name or user_name == "default":
+            return JSONResponse(
+                {"ok": False, "error": "无法确定写入用户,请先扫码登录或先在 Web UI 添加用户"},
+                status_code=400,
+            )
 
         # 应用新值
         if new_total > 0:
