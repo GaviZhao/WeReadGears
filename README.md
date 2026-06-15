@@ -225,16 +225,16 @@ WeReadGears/
 ```yaml
 services:
   wereadgears:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: wereadgears
+    image: gavizhao/wereadgears:latest
     hostname: wereadgears
     ports:
-      - "8080:8000"
+      - "8080:8000"   # 宿主机:容器,访问 http://localhost:8080
     volumes:
+      # 必挂:数据/凭证/日志/配置
       - ./shared:/app/shared
-      - ./src:/app/src
+      # 时区(让容器内时间和宿主机一致)
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     environment:
       - TZ=Asia/Shanghai
       - CONFIG_FILE=/app/shared/config.yaml
