@@ -15,52 +15,107 @@
 
 ## 特性
 
-- **API 模式**：HTTP API 请求 + 签名计算，高速稳定（默认）
-- **浏览器模式**：Playwright 可视化模拟，备用方案（API 失败自动切换）
-- **扫码登录**：首次运行时手动扫码一次，之后自动复用凭证
+- **可视化配置**：完全可视化配置机器人，直接扫码登录就能靠模拟浏览器自动截取运行所需参数，新手友好，门槛极低！
+- **热力图**：web端快速查看阅读时长热力图
+- **API阅读**：HTTP API 请求 + 签名计算，高速稳定（默认）
 - **多用户支持**：独立凭证管理，支持同时多个账号
 - **定时任务**：Cron 表达式定时执行
 - **守护进程**：长期运行，自动管理会话
 - **多平台通知**：支持 Bark、PushPlus、Telegram、Ntfy、飞书、企业微信、钉钉、Gotify、Server酱、PushDeer、WxPusher
-- **执行历史**：完整阅读记录和统计
-- **书籍配置**：支持指定书籍和章节
+- **书籍自动化配置**：搜索书籍/导入书架中书籍可自动完成配置，自动获取章节
 - **人类行为模拟**：随机滚动、休息间隔、书籍切换
 
 ## 演示截图
 
 <img width="1727" height="1264" alt="image" src="https://github.com/user-attachments/assets/e94e82a9-30a9-40da-b137-996a3944e94f" />
 
+## 更新计划
 
-## 快速开始（Docker Compose 部署）
+### 下一版（v2.0）:压缩一下浏览器内核
 
-只需 3 步即可跑起来。
+当前镜像基于 `mcr.microsoft.com/playwright/python`，**默认就带一个完整的 Chromium 浏览器内核**——这主要是为了实现web界面无感配置。
 
-### 第 1 步：克隆项目
+
+但代价是：
+
+
+- 镜像体积约 **1.2GB**（Chromium + 依赖 + Python）
+
+- 运行时内存占用 **500MB ~ 1GB**
+
+- 1GB 小内存的 NAS / VPS / OpenWrt 路由不一定带的动
+
+目标是：
+
+- 把整体运行内存压缩到90mb
+
+## Docker Compose 部署
+
+提供两种安装方式，**推荐方式一（拉镜像）**，无需构建，30 秒即可启动。
+
+### 方式一：拉 Docker Hub 镜像（推荐）
+
+适合：不想本地构建、NAS、CI、生产部署。
+
+#### 第 1 步：准备目录
 
 ```bash
-git clone https://github.com/GaviZhao/WeReadGears.git
-cd WeReadGears
+mkdir -p wereadgears/shared
+cd wereadgears
 ```
 
-### 第 2 步：启动容器
+#### 第 2 步：创建 `docker-compose.yaml`
+
+新建 `docker-compose.yaml` 文件，内容如下：
+
+```yaml
+services:
+  wereadgears:
+    image: gavizhao/wereadgears:latest
+    hostname: wereadgears
+    ports:
+      - "8080:8000"   # 宿主机:容器，访问 http://localhost:8080
+    volumes:
+      # 必挂：数据/凭证/日志/配置
+      - ./shared:/app/shared
+      # 时区（让容器内时间和宿主机一致）
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - CONFIG_FILE=/app/shared/config.yaml
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+```
+
+#### 第 3 步：启动容器
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
-程序首次启动时会自动生成配置文件 `shared/config.yaml`。
+首次启动会自动从 Docker Hub 拉取镜像（~880MB），**约 1 分钟**。
 
-首次启动需构建镜像（约 5~10 分钟），后续启动秒级完成。
-
-查看启动日志确认正常：
+#### 第 4 步：查看启动日志
 
 ```bash
-docker logs -f weread
+docker compose logs -f
 ```
 
-看到 `Web 服务启动在端口 8000` 即代表成功。
+看到 `Web 服务启动在端口 8000` 即代表成功。按 `Ctrl+C` 退出日志查看。
 
-### 第 3 步：扫码登录
+#### 第 5 步：扫码登录
 
 1. 浏览器打开 `http://你的IP:8080`
 2. 点击右侧「登录」按钮
@@ -71,30 +126,191 @@ docker logs -f weread
 
 **搞定！** 程序会按照默认配置每天 9:00 和 18:00 自动阅读。你可以在 Web 界面实时查看状态、调整配置、手动触发阅读。
 
-## 配置说明
+---
 
-配置文件位于 `shared/config.yaml`，首次启动时自动生成。所有配置项都有默认值，可根据需要修改。
+### 方式二：从源码构建（适合二次开发）
 
-### 快速配置示例
+适合：想改源码、贡献代码、想自己 build 镜像的开发者。
 
-```yaml
-app:
-  port: 8000
+```bash
+# 1. 克隆项目
+git clone https://github.com/GaviZhao/WeReadGears.git
+cd WeReadGears
 
-reading:
-  target_duration: "30-60"       # 每次阅读 30~60 分钟
-  mode: "smart_random"
+# 2. 创建 docker-compose.dev.yaml（开发用，挂载源码）
+cat > docker-compose.dev.yaml << 'EOF'
+services:
+  wereadgears:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wereadgears
+    hostname: wereadgears
+    ports:
+      - "8080:8000"
+    volumes:
+      - ./shared:/app/shared
+      - ./src:/app/src    # 关键：挂源码，改代码秒生效
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - CONFIG_FILE=/app/shared/config.yaml
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+EOF
 
-schedule:
-  enabled: true
-  times: ["09:00", "18:00"]      # 每天 9 点和 18 点自动阅读
-  timezone: "Asia/Shanghai"
+# 3. 启动（首次构建需要 5-10 分钟）
+docker compose -f docker-compose.dev.yaml up -d
 
-notification:
-  enabled: false                  # 如需通知改为 true
+# 4. 查看日志
+docker compose -f docker-compose.dev.yaml logs -f
 ```
 
-> **提示**：通知渠道、书籍配置等都可以启动后在 Web 界面里配置，不一定要手动编辑 YAML。
+> **后续操作**：
+> - 改代码：直接编辑本地文件，容器内立即生效（无需重启）
+> - 升级依赖：编辑 `requirements.txt` 后执行 `docker compose -f docker-compose.dev.yaml up -d --build`
+> - 推送新镜像：执行 `docker build -t gavizhao/wereadgears:1.0.1 . && docker push gavizhao/wereadgears:1.0.1`
+
+---
+
+### 适用场景对照
+
+| 场景 | 推荐方式 |
+|------|---------|
+| 我有 NAS / 小内存 VPS，想稳定运行 | **方式一（拉镜像）** |
+| 我想用最新代码，可能要改点东西 | 方式二（源码构建） |
+| 我要部署给朋友 / 家人 / 群友 | **方式一（拉镜像）** |
+| 我想贡献代码 / 提 PR | 方式二（源码构建） |
+| 我要在 GitHub Actions / CI 里跑 | **方式一（拉镜像）** |
+| 我是 ARM 架构（Apple Silicon / 树莓派） | 需要本地 build（Docker Hub 暂只提供 amd64） |
+
+### 配置说明
+
+配置文件位于 `shared/config.yaml`，**首次启动时自动生成**。所有配置项都有默认值，可根据需要修改。
+
+## Docker 部署详解
+
+### 镜像信息
+
+| 项 | 值 |
+|---|---|
+| 镜像仓库 | `gavizhao/wereadgears` |
+| Docker Hub | https://hub.docker.com/r/gavizhao/wereadgears |
+| 基础镜像 | `mcr.microsoft.com/playwright/python:v1.42.0` |
+| 镜像大小 | ~880MB（压缩）/ 3.2GB（解压） |
+| 架构 | `linux/amd64` |
+| 时区 | 容器内默认 `Asia/Shanghai`（可通过环境变量改） |
+
+### 配置文件详解
+
+`docker-compose.yaml` 关键字段说明：
+
+| 字段 | 作用 | 备注 |
+|---|---|---|
+| `image` | 使用的镜像 | `gavizhao/wereadgears:latest` |
+| `ports` | 端口映射 | `"8080:8000"` = 宿主机 8080 → 容器 8000 |
+| `volumes` | 目录挂载 | `./shared:/app/shared` **必挂**，否则丢数据 |
+| `environment.TZ` | 容器时区 | 默认 `Asia/Shanghai` |
+| `environment.CONFIG_FILE` | 配置文件路径 | 容器内路径，默认即可 |
+| `restart` | 重启策略 | `unless-stopped`（崩溃后自动重启） |
+| `deploy.resources` | 资源限制 | 内存建议 1-2G（项目带 Chromium 浏览器内核） |
+
+### 常见自定义
+
+| 需求 | 修改位置 |
+|------|---------|
+| 换端口（如改为 9090） | `ports: - "9090:8000"` |
+| 换时区 | `TZ=America/New_York` |
+| 限制内存 | 调整 `deploy.resources.limits.memory` |
+| 多用户管理 | Web 界面添加 / 改 `config.yaml` 的 `users` 字段 |
+| 改通知渠道 | Web 界面配置 / 改 `config.yaml` 的 `notification` 字段 |
+
+### 目录结构
+
+部署后 `shared/` 目录会自动生成以下结构：
+
+```
+shared/
+├── config.yaml          # 配置文件（首次启动自动生成）
+├── credentials/         # 用户凭证（扫码登录后自动生成）
+│   └── default.json
+├── covers/              # 书籍封面缓存
+├── chapters/            # 章节信息缓存
+└── logs/
+    ├── weread.log
+    └── run-history.json
+```
+
+### 常用命令
+
+```bash
+# 启动
+docker compose up -d
+
+# 查看日志
+docker compose logs -f
+
+# 重启（修改配置后）
+docker compose restart
+
+# 停止
+docker compose down
+
+# 重新拉镜像（升级用）
+docker compose pull
+docker compose up -d
+
+# 完全清除（包括数据）
+docker compose down -v
+```
+
+### 单次运行（不用 Compose）
+
+```bash
+docker run -d \
+  --name wereadgears \
+  -p 8080:8000 \
+  -v $(pwd)/shared:/app/shared \
+  -v /etc/localtime:/etc/localtime:ro \
+  -e TZ=Asia/Shanghai \
+  -e CONFIG_FILE=/app/shared/config.yaml \
+  --restart unless-stopped \
+  gavizhao/wereadgears:latest
+```
+
+### 升级到新版本
+
+```bash
+# 1. 拉取最新镜像
+docker compose pull
+
+# 2. 重启容器（新镜像生效）
+docker compose up -d
+
+# 3. 清理旧镜像
+docker image prune -f
+```
+
+### 命令行参数
+
+```bash
+python src/main.py --mode [immediate|scheduled|daemon]
+python src/main.py --mode immediate --user 用户名
+python src/main.py --validate-config  # 校验配置
+python src/main.py --show-last-run    # 查看上次结果
+```
 
 ## 阅读模式
 
@@ -207,16 +423,16 @@ WeReadGears/
 ```yaml
 services:
   wereadgears:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: wereadgears
+    image: gavizhao/wereadgears:latest
     hostname: wereadgears
     ports:
-      - "8080:8000"
+      - "8080:8000"   # 宿主机:容器,访问 http://localhost:8080
     volumes:
+      # 必挂:数据/凭证/日志/配置
       - ./shared:/app/shared
-      - ./src:/app/src
+      # 时区(让容器内时间和宿主机一致)
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     environment:
       - TZ=Asia/Shanghai
       - CONFIG_FILE=/app/shared/config.yaml

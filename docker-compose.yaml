@@ -1,17 +1,13 @@
 services:
   wereadgears:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: wereadgears
+    image: gavizhao/wereadgears:latest
     hostname: wereadgears
     ports:
-      - "8080:8000"
+      - "8080:8000"   # 宿主机:容器,访问 http://localhost:8080
     volumes:
+      # 必挂:数据/凭证/日志/配置
       - ./shared:/app/shared
-      - ./src:/app/src
-      # 2026-06-11: 挂载宿主机时区文件,让容器内 date / log 时间戳用 CST (UTC+8)
-      # Dockerfile 也装了 tzdata 做兜底,但直接挂更稳
+      # 时区(让容器内时间和宿主机一致)
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     environment:

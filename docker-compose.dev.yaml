@@ -1,0 +1,40 @@
+# 本地开发用 docker-compose 配置
+# 与 docker-compose.yaml(示例,使用 gavizhao/wereadgears:latest 镜像)区别:
+#   - 用 build: 本地构建,源码改动后 rebuild 即可生效(无需 push 镜像)
+#   - 挂载 ./src 到容器 /app/src,改 Python 源码免 rebuild(容器内 uvicorn --reload)
+# 使用: docker compose -f docker-compose.dev.yaml up -d --build
+#
+# 注意:此文件与 docker-compose.yaml 同时保留在仓库,前者是给 clone 后的用户直接
+# 拉镜像跑,后者是开发者本地调试。.gitignore 已放开两者,均参与版本控制。
+services:
+  wereadgears:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wereadgears
+    hostname: wereadgears
+    ports:
+      - "8080:8000"
+    volumes:
+      - ./shared:/app/shared
+      - ./src:/app/src
+      # 2026-06-11: 挂载宿主机时区文件,让容器内 date / log 时间戳用 CST (UTC+8)
+      # Dockerfile 也装了 tzdata 做兜底,但直接挂更稳
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - CONFIG_FILE=/app/shared/config.yaml
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
