@@ -15,6 +15,7 @@ ENV/
 .DS_Store
 *.log
 shared/
-docker-compose.yaml
-docker-compose.yml
+# 2026-06-12 改:docker-compose.yaml 必须提交,别人 clone 才能用
+# docker-compose.yaml
+# docker-compose.yml
 .opencode/

@@ -49,7 +49,9 @@ class BrowserManager:
         self._login_page: Optional[Page] = None
         self._login_status: str = "idle"
         self._login_error: str = ""
-        self._current_user: str = "default"
+        # 2026-06-16: 默认值改成 "" —— 之前 "default" 会通过 /login/status 泄漏到前端,
+        # 导致头部用户名显示 "default"。空串才是 falsy,前端才能正确回退到 Jinja 传的 logged_in_user
+        self._current_user: str = ""
         self.last_captured = {}
         self.last_captured_at = ""
         self._pending_login_data: Optional[Dict[str, Any]] = None

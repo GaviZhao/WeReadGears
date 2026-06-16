@@ -1470,6 +1470,10 @@ window.confirmUsername = confirmUsername;
 // 适配新结构:右上角"用户菜单"显示用户名,独立的"Cookie 失效条"显示失效提示(互不重叠)
 // 兜底:用模板渲染时的 logged_in_user(从"状态"卡传过来),保证右上角和状态卡至少一致
 var _initialUserName = {{ (logged_in_user or '') | tojson }};
+// 2026-06-16: "default" / 空串都不算合法用户名(用户原话:严禁 default 目录)
+function _isRealUserName(s) {
+    return !!s && typeof s === 'string' && s.trim() !== '' && s.trim().toLowerCase() !== 'default';
+}
 async function checkCookieHealth() {
     var cookieBadge = document.getElementById('headerCookieBadge');
     var nameEl = document.getElementById('headerUserName');
@@ -1482,13 +1486,16 @@ async function checkCookieHealth() {
             if (nameEl) nameEl.textContent = '登录已过期';
             return;
         }
-        // 未失效:用接口返回的用户名,否则兜底用模板传的
+        // 未失效:用接口返回的用户名,否则兜底用模板传的(都过滤 default)
         if (cookieBadge) cookieBadge.style.display = 'none';
-        var name = d.user_name || d.user || _initialUserName || '未登录';
+        var name = _isRealUserName(d.user_name) ? d.user_name
+                 : _isRealUserName(d.user)      ? d.user
+                 : _isRealUserName(_initialUserName) ? _initialUserName
+                 : '未登录';
         if (nameEl) nameEl.textContent = name;
     } catch (e) {
         // 接口失败:用兜底值
-        if (nameEl) nameEl.textContent = _initialUserName || '未登录';
+        if (nameEl) nameEl.textContent = _isRealUserName(_initialUserName) ? _initialUserName : '未登录';
     }
 }
 window.checkCookieHealth = checkCookieHealth;
@@ -1642,35 +1649,62 @@ function startProgressPoll() {
 }
 
 // === 测试通知 ===
+// 收集当前 UI 上"开关打开"的通道名单(按 data-channel)
+function getEnabledChannelNames() {
+    var names = [];
+    document.querySelectorAll('.ch-row[data-channel]').forEach(function(row) {
+        var t = row.querySelector('.channel-toggle');
+        var name = row.getAttribute('data-channel');
+        if (t && t.checked && name) names.push(name);
+    });
+    return names;
+}
+// 根据 status 选 toast 类型;ok→success, partial→warning, 其他→error
+function toastForStatus(d) {
+    var msg = d.message || '已发送';
+    var icon = d.status === 'ok' ? 'success' : (d.status === 'partial' ? 'warning' : 'error');
+    var duration = d.status === 'ok' ? 2500 : 5000;
+    showToast(msg, icon, duration);
+}
+
 function testNotification() {
     var btn = document.getElementById('btnTestNotify');
+    var channels = getEnabledChannelNames();
+    if (!channels.length) {
+        showToast('请先打开至少一个通知通道开关', 'warning', 4000);
+        return;
+    }
     withLoading(btn, function() {
         return fetch('/test-notification', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({type: 'general'})
-        }).then(function(r) { return r.json(); }).then(function(d) {
-            showToast(d.message || '已发送', d.status === 'ok' ? 'success' : 'error');
-        });
+            body: JSON.stringify({type: 'general', channels: channels})
+        }).then(function(r) { return r.json(); }).then(toastForStatus);
     });
 }
 window.testNotification = testNotification;
 
 function testWeeklyNotification() {
     var btn = event && event.target;
-    var loader = btn ? withLoading(btn, function() { return sendWeeklyTest(); }) : sendWeeklyTest();
+    var channels = getEnabledChannelNames();
+    if (!channels.length) {
+        showToast('请先打开至少一个通知通道开关', 'warning', 4000);
+        return;
+    }
     function sendWeeklyTest() {
         return fetch('/test-notification', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({type: 'weekly_reward'})
+            body: JSON.stringify({type: 'weekly_reward', channels: channels})
         }).then(function(r) { return r.json(); }).then(function(d) {
-            showToast(d.message || '已发送', d.status === 'ok' ? 'success' : 'error');
-            if (d.status === 'ok') {
+            toastForStatus(d);
+            if (d.status === 'ok' || d.status === 'partial') {
                 refreshWeeklyStatus();
             }
         });
     }
+    if (btn) withLoading(btn, sendWeeklyTest);
+    else sendWeeklyTest();
 }
 window.testWeeklyNotification = testWeeklyNotification;
 
@@ -1936,6 +1970,8 @@ function syncChannelRowState(row) {
     if (!toggle) return;
     var enabled = toggle.checked;
     row.querySelectorAll('input, select, textarea').forEach(function(el) {
+        // 不要把 toggle 自己禁用,否则关闭后永远开不回来
+        if (el === toggle) return;
         el.disabled = !enabled;
     });
 }

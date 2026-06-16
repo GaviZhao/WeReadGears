@@ -64,7 +64,10 @@ class BarkChannel(NotificationChannel):
                 logger.warning(f"Bark 通知失败: HTTP {response.status_code} body={response.text[:200]}")
                 return False
         except Exception as e:
-            logger.error(f"Bark通知失败: {e}")
+            # 注意:httpcore.ConnectError 等底层异常 str() 是空的,必须用 !r 才能看到类型
+            cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+            cause_str = f" cause={cause!r}" if cause else ""
+            logger.error(f"Bark通知失败: type={type(e).__name__} msg={e!r}{cause_str} url={url}")
             return False
 
 
@@ -89,10 +92,16 @@ class PushPlusChannel(NotificationChannel):
                 )
                 if response.status_code == 200:
                     result = response.json()
-                    return result.get("code") == 200
+                    if result.get("code") == 200:
+                        return True
+                    logger.warning(f"PushPlus 通知失败: code={result.get('code')} msg={result.get('msg') or result.get('message')}")
+                    return False
+                logger.warning(f"PushPlus 通知失败: HTTP {response.status_code} body={response.text[:200]}")
                 return False
         except Exception as e:
-            logger.error(f"PushPlus通知失败: {e}")
+            cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+            cause_str = f" cause={cause!r}" if cause else ""
+            logger.error(f"PushPlus通知失败: type={type(e).__name__} msg={e!r}{cause_str}")
             return False
 
 
@@ -114,9 +123,14 @@ class TelegramChannel(NotificationChannel):
                     self.url,
                     json={"chat_id": self.chat_id, "text": text, "parse_mode": "Markdown"}
                 )
-                return response.status_code == 200
+                if response.status_code == 200:
+                    return True
+                logger.warning(f"Telegram 通知失败: HTTP {response.status_code} body={response.text[:200]}")
+                return False
         except Exception as e:
-            logger.error(f"Telegram通知失败: {e}")
+            cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+            cause_str = f" cause={cause!r}" if cause else ""
+            logger.error(f"Telegram通知失败: type={type(e).__name__} msg={e!r}{cause_str}")
             return False
 
 
@@ -140,9 +154,14 @@ class WxPusherChannel(NotificationChannel):
                         "topicIds": [self.spt]
                     }
                 )
-                return response.status_code == 200
+                if response.status_code == 200:
+                    return True
+                logger.warning(f"WxPusher 通知失败: HTTP {response.status_code} body={response.text[:200]}")
+                return False
         except Exception as e:
-            logger.error(f"WxPusher通知失败: {e}")
+            cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+            cause_str = f" cause={cause!r}" if cause else ""
+            logger.error(f"WxPusher通知失败: type={type(e).__name__} msg={e!r}{cause_str}")
             return False
 
 
@@ -166,9 +185,14 @@ class NtfyChannel(NotificationChannel):
                     headers=headers,
                     content=f"{title}\n\n{content}"
                 )
-                return response.status_code in (200, 201)
+                if response.status_code in (200, 201):
+                    return True
+                logger.warning(f"Ntfy 通知失败: HTTP {response.status_code} body={response.text[:200]}")
+                return False
         except Exception as e:
-            logger.error(f"Ntfy通知失败: {e}")
+            cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+            cause_str = f" cause={cause!r}" if cause else ""
+            logger.error(f"Ntfy通知失败: type={type(e).__name__} msg={e!r}{cause_str}")
             return False
 
 
@@ -192,9 +216,14 @@ class FeishuChannel(NotificationChannel):
                 payload = {"msg_type": "text", "content": {"text": f"{title}\n\n{content}"}}
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(self.webhook_url, json=payload)
-                return response.status_code == 200
+                if response.status_code == 200:
+                    return True
+                logger.warning(f"飞书通知失败: HTTP {response.status_code} body={response.text[:200]}")
+                return False
         except Exception as e:
-            logger.error(f"飞书通知失败: {e}")
+            cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+            cause_str = f" cause={cause!r}" if cause else ""
+            logger.error(f"飞书通知失败: type={type(e).__name__} msg={e!r}{cause_str}")
             return False
 
 
@@ -215,9 +244,14 @@ class WeWorkChannel(NotificationChannel):
                 payload = {"msgtype": "text", "text": {"content": f"{title}\n\n{content}"}}
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(self.webhook_url, json=payload)
-                return response.status_code == 200
+                if response.status_code == 200:
+                    return True
+                logger.warning(f"企业微信通知失败: HTTP {response.status_code} body={response.text[:200]}")
+                return False
         except Exception as e:
-            logger.error(f"企业微信通知失败: {e}")
+            cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+            cause_str = f" cause={cause!r}" if cause else ""
+            logger.error(f"企业微信通知失败: type={type(e).__name__} msg={e!r}{cause_str}")
             return False
 
 
@@ -238,9 +272,14 @@ class DingTalkChannel(NotificationChannel):
                 payload = {"msgtype": "text", "text": {"content": f"{title}\n\n{content}"}}
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(self.webhook_url, json=payload)
-                return response.status_code == 200
+                if response.status_code == 200:
+                    return True
+                logger.warning(f"钉钉通知失败: HTTP {response.status_code} body={response.text[:200]}")
+                return False
         except Exception as e:
-            logger.error(f"钉钉通知失败: {e}")
+            cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+            cause_str = f" cause={cause!r}" if cause else ""
+            logger.error(f"钉钉通知失败: type={type(e).__name__} msg={e!r}{cause_str}")
             return False
 
 
@@ -262,9 +301,14 @@ class GotifyChannel(NotificationChannel):
                     params={"token": self.token},
                     json={"message": content, "title": title, "priority": self.priority}
                 )
-                return response.status_code == 200
+                if response.status_code == 200:
+                    return True
+                logger.warning(f"Gotify 通知失败: HTTP {response.status_code} body={response.text[:200]}")
+                return False
         except Exception as e:
-            logger.error(f"Gotify通知失败: {e}")
+            cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+            cause_str = f" cause={cause!r}" if cause else ""
+            logger.error(f"Gotify通知失败: type={type(e).__name__} msg={e!r}{cause_str}")
             return False
 
 
@@ -283,9 +327,14 @@ class ServerChan3Channel(NotificationChannel):
                     self.url,
                     params={"uid": self.uid, "sendkey": self.sendkey, "title": title, "content": content}
                 )
-                return response.status_code == 200
+                if response.status_code == 200:
+                    return True
+                logger.warning(f"Server酱通知失败: HTTP {response.status_code} body={response.text[:200]}")
+                return False
         except Exception as e:
-            logger.error(f"Server酱通知失败: {e}")
+            cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+            cause_str = f" cause={cause!r}" if cause else ""
+            logger.error(f"Server酱通知失败: type={type(e).__name__} msg={e!r}{cause_str}")
             return False
 
 
@@ -303,9 +352,14 @@ class PushDeerChannel(NotificationChannel):
                     self.url,
                     data={"pushkey": self.pushkey, "text": content, "desp": title, "type": "markdown"}
                 )
-                return response.status_code == 200
+                if response.status_code == 200:
+                    return True
+                logger.warning(f"PushDeer 通知失败: HTTP {response.status_code} body={response.text[:200]}")
+                return False
         except Exception as e:
-            logger.error(f"PushDeer通知失败: {e}")
+            cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+            cause_str = f" cause={cause!r}" if cause else ""
+            logger.error(f"PushDeer通知失败: type={type(e).__name__} msg={e!r}{cause_str}")
             return False
 
 
@@ -316,6 +370,14 @@ class Notifier:
         self.only_on_failure = config.get("notification.only_on_failure", False)
         self.channels: List[NotificationChannel] = []
         self._init_channels()
+
+    def reload_channels(self):
+        """从当前 config 重新构建通道列表(用于配置保存后即时生效,免重启服务)。
+        解决"UI 上勾选新通道 + 保存后,实际通知仍走启动时的缓存"的问题。"""
+        self.channels.clear()
+        self._init_channels()
+        logger.info(f"通知通道已重建:共 {len(self.channels)} 个通道")
+        return self.channels
 
     def _init_channels(self):
         if config.get("notification.bark.enabled", False):

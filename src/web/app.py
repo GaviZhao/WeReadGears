@@ -23,6 +23,11 @@ from src.browser import browser_manager
 from src.reader import reader
 from src.scheduler import scheduler
 from src.notifier import notifier, NotificationType
+from src.notifier import (
+    BarkChannel, PushPlusChannel, TelegramChannel, WxPusherChannel,
+    NtfyChannel, FeishuChannel, WeWorkChannel, DingTalkChannel,
+    GotifyChannel, ServerChan3Channel, PushDeerChannel,
+)
 from src.cookie_manager import cookie_manager
 from src.credential_manager import credential_manager
 from src.history_manager import history_manager
@@ -314,6 +319,12 @@ async def save_config(request: Request):
         }
     }
     config.update(updates)
+    # 通知通道配置变了 → 重建 notifier.channels,免重启就能用上新通道
+    if "notification" in updates:
+        try:
+            notifier.reload_channels()
+        except Exception as e:
+            logger.error(f"重建通知通道失败: {e}")
     # 如果每周奖励配置变了,更新调度器触发器(避免重启服务)
     try:
         notif = updates.get("notification", {})
@@ -1357,10 +1368,16 @@ async def login_status():
         return JSONResponse({"status": "need_username", "message": "请输入用户名"})
     # 兼容:浏览器返回字段是 user;前端 header 右上角读 user_name + 状态卡读 user
     # 优先用浏览器当前用户,否则回退到第一个有效用户(磁盘凭证)
-    user_name = status.get("user") or ""
+    # 2026-06-16: 兜底 —— "default" / 空字符串都视作"未设",严禁泄漏到前端(用户原话)
+    raw_user = status.get("user") or ""
+    if raw_user.strip().lower() == "default":
+        raw_user = ""
+    user_name = raw_user
     if not user_name:
         try:
             valid_users = cookie_manager.get_all_valid_users()
+            # 同样过滤 "default"
+            valid_users = [u for u in valid_users if u and u.strip().lower() != "default"]
             if valid_users:
                 user_name = valid_users[0]
         except Exception:
@@ -1368,8 +1385,11 @@ async def login_status():
     if user_name:
         status["user_name"] = user_name
         # 没设 user 时也回填,保持 user 字段存在
-        if not status.get("user"):
+        if not status.get("user") or status.get("user", "").strip().lower() == "default":
             status["user"] = user_name
+    else:
+        # 都没拿到 → 显式清掉 "default" 残留
+        status.pop("user_name", None)
     return JSONResponse(status)
 
 
@@ -1455,9 +1475,12 @@ async def restart_browser():
 
 @app.post("/test-notification")
 async def test_notification(request: Request):
-    """测试通知。query/body 参数 type=general|weekly_reward
-    - general:    通用测试通知,验证通道配置
-    - weekly_reward: 模拟每周奖励提醒的标题+内容
+    """测试通知。query/body 参数:
+    - type=general|weekly_reward    通用 vs 周奖励(标题/正文不同)
+    - channels=["bark","feishu",..] 只测开关打开的通道;不传/空=测所有 enabled 的(向后兼容)
+
+    重要:不走 notifier.channels 缓存(那是模块启动时按 YAML 构建的,UI 改了保存不重建),
+    而是每次按当前 config + 通道名单临时构造通道实例,这样 UI 勾选状态能立刻生效。
     """
     try:
         body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
@@ -1465,19 +1488,305 @@ async def test_notification(request: Request):
         body = {}
     ntype = (body.get("type") or "general").lower()
 
-    if ntype == "weekly_reward":
-        success = await notifier.notify_weekly_reward()
-        msg = "每周奖励提醒已发送(模拟)" if success else "发送失败,请检查通知通道配置"
+    # 解析 channels 字段
+    raw_channels = body.get("channels")
+    if raw_channels is None:
+        # 旧版前端没传:测所有 enabled+keys 完整的通道
+        requested = None
     else:
-        success = await notifier.send(
-            "微信读书自动阅读 - 测试通知\n\n如果你收到此消息,说明通知配置正确。",
-            NotificationType.GENERAL
-        )
-        msg = "测试通知已发送" if success else "通知发送失败,请检查 Token/Key 是否正确"
+        requested = raw_channels if isinstance(raw_channels, list) else [raw_channels]
+        # 过滤非字符串 / 不识别的名字
+        requested = [n for n in requested if isinstance(n, str) and n in CHANNEL_LABELS]
 
-    if success:
-        return JSONResponse({"status": "ok", "message": msg, "type": ntype})
-    return JSONResponse({"status": "error", "message": msg, "type": ntype})
+    # 按名单(或不传=全部)构造通道
+    targets = _build_test_channels(requested)
+
+    if not targets:
+        if requested:
+            # 全部缺失配置 → 单独提示
+            missing = "、".join(CHANNEL_LABELS.get(n, n) for n in requested)
+            msg = f"未发送:通道 {missing} 配置不完整或未启用(请确认已开启开关 + 填好 Token/Webhook,并保存配置)"
+        else:
+            msg = "未配置任何通知通道,请先开启开关并保存"
+        return JSONResponse({"status": "error", "message": msg, "type": ntype})
+
+    # 标题/正文(简化,与 notifier._format_body 保持一致)
+    if ntype == "weekly_reward":
+        title = "微信读书 · 周奖励待领"
+        body_text = "(测试) 周奖励提醒 - 如果你收到此消息,说明通知配置正确。"
+    else:
+        title = "微信读书自动阅读 - 测试通知"
+        body_text = "如果你收到此消息,说明通知配置正确。"
+
+    # 并发发送(每个通道独立,互不影响)
+    results = await asyncio.gather(
+        *[ch.send(title, body_text) for ch, _ in targets],
+        return_exceptions=True,
+    )
+
+    # 汇总
+    success_labels = []
+    failed_items = []  # [(label, reason)]
+    for (ch, name), r in zip(targets, results):
+        label = CHANNEL_LABELS.get(name, name)
+        if r is True:
+            success_labels.append(label)
+        elif isinstance(r, Exception):
+            failed_items.append((label, type(r).__name__))
+        else:
+            # channel.send 内部已经吞掉异常 → 跑一次小诊断把真正原因带回 toast
+            diag = await _quick_diag(name)
+            if not diag["ok"]:
+                failed_items.append((label, f"网络不通:{diag['stage']}({diag.get('reason','')})"))
+            else:
+                failed_items.append((label, "服务端未确认成功(HTTP 异常/被限流)"))
+
+    if not failed_items:
+        msg = f"已发送 ({len(success_labels)}/{len(targets)} 通道):" + "、".join(success_labels)
+        return JSONResponse({
+            "status": "ok", "message": msg, "type": ntype,
+            "success": success_labels, "failed": []
+        })
+
+    if success_labels:
+        fail_str = "、".join(f"{n}({r})" for n, r in failed_items)
+        msg = f"部分成功:{('、'.join(success_labels))} 已发送;失败:{fail_str}"
+        return JSONResponse({
+            "status": "partial", "message": msg, "type": ntype,
+            "success": success_labels, "failed": [n for n, _ in failed_items]
+        })
+
+    # 全部失败
+    fail_str = "、".join(f"{n}({r})" for n, r in failed_items)
+    msg = f"全部发送失败:{fail_str}"
+    return JSONResponse({
+        "status": "error", "message": msg, "type": ntype,
+        "success": [], "failed": [n for n, _ in failed_items]
+    })
+
+
+# === 测试通道构造(读当前 config,不依赖 notifier 缓存) ===
+CHANNEL_LABELS = {
+    "bark": "Bark",
+    "pushplus": "PushPlus",
+    "telegram": "Telegram",
+    "wxpusher": "WxPusher",
+    "ntfy": "Ntfy",
+    "feishu": "飞书",
+    "wework": "企业微信",
+    "dingtalk": "钉钉",
+    "gotify": "Gotify",
+    "serverchan3": "Server酱",
+    "pushdeer": "PushDeer",
+}
+
+
+def _build_channel(name: str):
+    """根据当前 config 构造单个通道实例。返回 None 表示未启用或 key 不完整。
+    与 notifier._init_channels 保持一致,但每次实时读 config(后者只在启动时读一次)。"""
+    if not config.get(f"notification.{name}.enabled", False):
+        return None
+    if name == "bark":
+        k = config.get("notification.bark.device_key", "")
+        if not k:
+            return None
+        return BarkChannel(
+            config.get("notification.bark.server", "https://api.day.app") or "https://api.day.app",
+            k,
+            config.get("notification.bark.sound", ""),
+        )
+    if name == "pushplus":
+        k = config.get("notification.pushplus.token", "")
+        return PushPlusChannel(k) if k else None
+    if name == "telegram":
+        bot = config.get("notification.telegram.bot_token", "")
+        cid = config.get("notification.telegram.chat_id", "")
+        return TelegramChannel(bot, cid) if (bot and cid) else None
+    if name == "wxpusher":
+        k = config.get("notification.wxpusher.spt", "")
+        return WxPusherChannel(k) if k else None
+    if name == "ntfy":
+        topic = config.get("notification.ntfy.topic", "")
+        if not topic:
+            return None
+        return NtfyChannel(
+            config.get("notification.ntfy.server", "https://ntfy.sh") or "https://ntfy.sh",
+            topic,
+            config.get("notification.ntfy.token", ""),
+        )
+    if name == "feishu":
+        u = config.get("notification.feishu.webhook_url", "")
+        if not u:
+            return None
+        return FeishuChannel(u, config.get("notification.feishu.msg_type", "text") or "text")
+    if name == "wework":
+        u = config.get("notification.wework.webhook_url", "")
+        if not u:
+            return None
+        return WeWorkChannel(u, config.get("notification.wework.msg_type", "text") or "text")
+    if name == "dingtalk":
+        u = config.get("notification.dingtalk.webhook_url", "")
+        if not u:
+            return None
+        return DingTalkChannel(u, config.get("notification.dingtalk.msg_type", "text") or "text")
+    if name == "gotify":
+        s = config.get("notification.gotify.server", "")
+        t = config.get("notification.gotify.token", "")
+        if not (s and t):
+            return None
+        return GotifyChannel(s, t, int(config.get("notification.gotify.priority", 5)))
+    if name == "serverchan3":
+        u = config.get("notification.serverchan3.uid", "")
+        k = config.get("notification.serverchan3.sendkey", "")
+        return ServerChan3Channel(u, k) if (u and k) else None
+    if name == "pushdeer":
+        k = config.get("notification.pushdeer.pushkey", "")
+        return PushDeerChannel(k) if k else None
+    return None
+
+
+def _build_test_channels(names):
+    """names=None → 构造所有 enabled+keys 完整的(向后兼容);
+    names=list → 只构造名单里且配置完整的。返回 [(channel, name), ...]"""
+    if names is None:
+        out = []
+        for n in CHANNEL_LABELS:
+            ch = _build_channel(n)
+            if ch is not None:
+                out.append((ch, n))
+        return out
+    out = []
+    for n in names:
+        ch = _build_channel(n)
+        if ch is not None:
+            out.append((ch, n))
+    return out
+
+
+async def _quick_diag(name: str) -> dict:
+    """测试用的小型诊断:DNS + TCP + HTTPS,出错立刻返回真正失败原因。
+    目的:channel.send 内部把异常吞了返回 False,这里把真实原因挖出来给用户看。
+    返回 {ok, stage, reason} — stage 是 DNS/TCP/HTTPS/config/ok 之一。"""
+    import socket
+    from urllib.parse import urlparse
+    server = None
+    if name == "bark":
+        server = config.get("notification.bark.server") or "https://api.day.app"
+    elif name == "ntfy":
+        server = config.get("notification.ntfy.server") or "https://ntfy.sh"
+    elif name == "gotify":
+        server = config.get("notification.gotify.server")
+    elif name in ("feishu", "wework", "dingtalk"):
+        server = config.get(f"notification.{name}.webhook_url")
+    else:
+        server_map = {
+            "pushplus": "http://www.pushplus.plus",
+            "telegram": "https://api.telegram.org",
+            "wxpusher": "https://wxpusher.zjiecode.com",
+            "serverchan3": "https://sc3.ft07.com",
+            "pushdeer": "https://api.pushdeer.com",
+        }
+        server = server_map.get(name)
+    if not server:
+        return {"ok": False, "stage": "config", "reason": "缺少 server/webhook_url"}
+    parsed = urlparse(server)
+    host, port = parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        ip = socket.gethostbyname(host)
+    except Exception as e:
+        return {"ok": False, "stage": "DNS", "reason": f"{type(e).__name__}:{e}"}
+    try:
+        s = socket.create_connection((host, port), timeout=8)
+        s.close()
+    except Exception as e:
+        return {"ok": False, "stage": "TCP", "reason": f"{type(e).__name__}:{e}"}
+    try:
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as c:
+            r = await c.get(server.rstrip("/"))
+        if r.status_code >= 500:
+            return {"ok": False, "stage": "HTTPS", "reason": f"5xx {r.status_code}"}
+        return {"ok": True, "stage": "ok", "reason": f"{r.status_code}"}
+    except Exception as e:
+        cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+        return {"ok": False, "stage": "HTTPS", "reason": f"{type(e).__name__}:{e} cause={cause!r}"}
+
+
+@app.get("/api/notification-diag/{name}")
+async def notification_diag_one(name: str):
+    """单通道诊断:DNS 解析 + TCP 连接 + HTTPS GET,每个步骤返回耗时和结果"""
+    import socket
+    import time
+    if name not in CHANNEL_LABELS:
+        return JSONResponse({"ok": False, "stage": "input", "error": f"未知通道: {name}"})
+    if not config.get(f"notification.{name}.enabled", False):
+        return JSONResponse({"ok": False, "stage": "config", "error": "该通道未启用,请先在 UI 上打开开关并保存"})
+
+    # 取 server URL(各通道字段名不同,挨个写)
+    server = None
+    if name == "bark":
+        server = config.get("notification.bark.server") or "https://api.day.app"
+    elif name == "ntfy":
+        server = config.get("notification.ntfy.server") or "https://ntfy.sh"
+    elif name == "gotify":
+        server = config.get("notification.gotify.server")
+    elif name in ("feishu", "wework", "dingtalk"):
+        server = config.get(f"notification.{name}.webhook_url")
+    else:
+        # pushplus/telegram/wxpusher/serverchan3/pushdeer 是固定 server,直接测该 host
+        server_map = {
+            "pushplus": "http://www.pushplus.plus",
+            "telegram": "https://api.telegram.org",
+            "wxpusher": "https://wxpusher.zjiecode.com",
+            "serverchan3": "https://sc3.ft07.com",
+            "pushdeer": "https://api.pushdeer.com",
+        }
+        server = server_map.get(name)
+
+    if not server:
+        return JSONResponse({"ok": False, "stage": "config", "error": "缺少 server / webhook_url"})
+
+    # 抽 host
+    from urllib.parse import urlparse
+    parsed = urlparse(server)
+    host = parsed.hostname
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+    steps = []
+    # 1. DNS
+    t0 = time.time()
+    try:
+        ip = socket.gethostbyname(host)
+        steps.append({"stage": "dns", "ok": True, "ms": int((time.time() - t0) * 1000), "host": host, "ip": ip})
+    except Exception as e:
+        steps.append({"stage": "dns", "ok": False, "ms": int((time.time() - t0) * 1000), "host": host,
+                      "type": type(e).__name__, "msg": str(e) or repr(e)})
+        return JSONResponse({"ok": False, "stage": "dns", "steps": steps})
+
+    # 2. TCP
+    t0 = time.time()
+    try:
+        s = socket.create_connection((host, port), timeout=10)
+        s.close()
+        steps.append({"stage": "tcp", "ok": True, "ms": int((time.time() - t0) * 1000), "ip": ip, "port": port})
+    except Exception as e:
+        steps.append({"stage": "tcp", "ok": False, "ms": int((time.time() - t0) * 1000), "ip": ip, "port": port,
+                      "type": type(e).__name__, "msg": str(e) or repr(e)})
+        return JSONResponse({"ok": False, "stage": "tcp", "steps": steps})
+
+    # 3. HTTPS(简单 GET 一次,验证 SSL + 协议层通)
+    t0 = time.time()
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as c:
+            r = await c.get(server if not server.endswith("/") else server[:-1])
+        steps.append({"stage": "https", "ok": True, "ms": int((time.time() - t0) * 1000),
+                      "status": r.status_code, "len": len(r.text)})
+        return JSONResponse({"ok": True, "steps": steps})
+    except Exception as e:
+        cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+        steps.append({"stage": "https", "ok": False, "ms": int((time.time() - t0) * 1000),
+                      "type": type(e).__name__, "msg": str(e) or repr(e),
+                      "cause": repr(cause) if cause else None})
+        return JSONResponse({"ok": False, "stage": "https", "steps": steps})
 
 
 @app.get("/api/weekly-status")
