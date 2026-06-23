@@ -143,6 +143,11 @@ class BrowserManager:
                 ]
             )
 
+            # 2026-06-23: 让 Playwright cookies / storage / login state 持久化
+            # 之前每次 restart 容器 Playwright profile 都在 /tmp/playwright_chromiumdev_profile-XXX
+            # → 重新扫码登录。改用 storage_state 从 cookies.json 注入,并在 cookies
+            # 后续变化时调用 storage_state() 写回 default.json(下个会话继续用)
+
             storage_state = None
             valid_users = cookie_manager.get_all_valid_users()
             if valid_users:
@@ -376,6 +381,35 @@ class BrowserManager:
                 safe_headers[k_str] = v_str
             except UnicodeEncodeError:
                 continue
+
+        # 2026-06-21: 标准化 captured headers (对齐 funnyzak/weread-bot)
+        # 原因:Playwright headless Chrome 抓的 sec-ch-ua / sec-ch-ua-platform 是脏的
+        #       (含 HeadlessChrome 字样、v 版本号错乱、缺右引号);x-wrpa-0 是腾讯风控
+        #       nonce 一次性;baggage/sentry-trace 是 sentry 上报头业务请求不该带
+        # 修复:从源头把这些 key 删掉或覆盖成"已知干净"的标准 Chrome 131 值,
+        #       runtime _normalize_browser_fingerprint 只需要兜底缺省场景,
+        #       不再被脏数据带着跑(避免 runtime 的"清洗逻辑"误判非 Headless 脏数据)
+        # 对齐 funnyzak:funnyzak 用真实 Chrome 抓包,header 本身就是干净的,
+        #       本项目 Playwright headless 没这个条件,所以代码主动模拟这个效果
+        HEADERS_DROP_FROM_HEADLESS = {
+            "x-wrpa-0",          # 腾讯风控 nonce,一次性
+            "baggage",            # sentry 上报
+            "sentry-trace",       # sentry 上报
+            "sentry",             # sentry 上报
+        }
+        # 真实 Chrome 131 在 Windows 上发出的标准 sec-ch-ua 系列值
+        # 参考:funnyzak/weread-bot 真实浏览器抓包的实际值
+        HEADERS_OVERRIDE_FROM_HEADLESS = {
+            "sec-ch-ua": '"Not_A Brand";v="24", "Chromium";v="131", "Google Chrome";v="131"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+        }
+        for k_drop in HEADERS_DROP_FROM_HEADLESS:
+            safe_headers.pop(k_drop, None)
+        # 覆盖:无论 captured 里是啥,统一用标准值(避免捕获到 HeadlessChrome/v=123 等脏字串)
+        for k_over, v_over in HEADERS_OVERRIDE_FROM_HEADLESS.items():
+            safe_headers[k_over] = v_over
+
         cred.user_info["captured_headers"] = safe_headers
         safe_cookies = {}
         for k, v in cc.items():
@@ -1803,6 +1837,18 @@ class BrowserManager:
                 # 只在 c 是当前 book_id 时接受(避免捕获到其他书的请求)
                 if str(data.get("b", "")) != str(book_id):
                     return
+                # 2026-06-23: 还要验证 referer 必须包含当前 bookId
+                # 之前袁世凯抓章节时,sm 居然是明朝的内容 — 排查发现是 Playwright context
+                # 持有明朝页面的飞行请求,b 字段虽然对上了(腾讯服务端可能补全),
+                # 但 referer 仍指向明朝 URL。
+                # 修法:referer 不含当前 bookId → 是飞行请求/旧 page 请求,丢弃
+                req_referer = request.headers.get("referer", "") or ""
+                if req_referer and book_id not in req_referer:
+                    logger.debug(
+                        f"截获心跳 referer 不匹配: book={book_id[:12]} "
+                        f"referer={req_referer[:80]} → 丢弃(可能是飞行请求)"
+                    )
+                    return
                 cid = str(data.get("c", "") or "").strip()
                 if not cid:
                     return
@@ -1817,12 +1863,18 @@ class BrowserManager:
                         "chapterIdx": idx_int,
                         "title": "",  # curl body 没带 title,留空
                     }
+                    # 2026-06-23: 把 sm/co/pr 也截下来 — 腾讯用 sm 跟 c 做交叉校验,
+                    # 跨书时如果还发 captured 那本书的 sm,腾讯静默拒收 → 时长不入账
+                    # 存到 heartbeat_context 跟着 chapters/{bookId}.json 一起缓存
                     captured_payloads.append({
                         "c": cid, "ci": idx_int,
                         "b": data.get("b", ""),
                         "ps": data.get("ps", ""),
                         "pc": data.get("pc", ""),
                         "appId": data.get("appId", ""),
+                        "sm": data.get("sm", ""),
+                        "co": data.get("co", ""),
+                        "pr": data.get("pr", ""),
                     })
                     logger.debug(
                         f"📖 截获 /web/book/read 心跳: c={cid[:16]} ci={idx_int} "
@@ -1870,15 +1922,20 @@ class BrowserManager:
                     f"🌐 fetch_only_first 模式: {book_id[:12]} 只抓首章,跳过翻页累积"
                 )
                 first = list(captured_chapters.values())[0]
-                # 手动 remove_listener(try/finally 块还没结束,我们直接 return 触发 finally)
-                # 然后构造返回值。Python 保证:try 块 return → finally 跑 → 才真的 return
-                # 所以这里 return 一个 payload,finally 不会改它
+                # 2026-06-23: heartbeat_context — 腾讯 sm 跟 c 必须配套,
+                # 跨书不更新 sm → 静默拒收。这里把截获的 sm/co/pr 一起返回
+                first_payload = captured_payloads[0] if captured_payloads else {}
+                hb_ctx = {}
+                for k in ("sm", "co", "pr", "ci"):
+                    if k in first_payload and first_payload[k] != "":
+                        hb_ctx[k] = first_payload[k]
                 return {
                     "bookId": book_id,
                     "chapters": [first],
                     "first_chapter_uid": first["chapterUid"],
                     "first_chapter_idx": first.get("chapterIdx", 0),
                     "fetch_only_first": True,
+                    "heartbeat_context": hb_ctx,
                 }
 
             # ③ 模拟翻页累积 chapters
@@ -1936,11 +1993,18 @@ class BrowserManager:
             f"🌐 Playwright 抓章节成功: {book_id[:12]} 拿到 {len(norm)} 章"
             f"(从 /web/book/read 心跳累积),首章 c={first['chapterUid'][:16]} idx={first.get('chapterIdx', 0)}"
         )
+        # 2026-06-23: heartbeat_context — 取首章对应的截获心跳里的 sm/co/pr
+        first_payload = captured_payloads[0] if captured_payloads else {}
+        hb_ctx = {}
+        for k in ("sm", "co", "pr", "ci"):
+            if k in first_payload and first_payload[k] != "":
+                hb_ctx[k] = first_payload[k]
         return {
             "bookId": book_id,
             "chapters": norm,
             "first_chapter_uid": first["chapterUid"],
             "first_chapter_idx": first.get("chapterIdx", 0),
+            "heartbeat_context": hb_ctx,
         }
 
         # 解析最后一次响应(章节列表通常在最后一次请求里)

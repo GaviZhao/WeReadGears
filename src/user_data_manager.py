@@ -306,22 +306,58 @@ class UserDataManager:
         """加载用户的cookies
 
         2026-06-12:user_name 为空 / "default" 时返回 None(不抛)
+        2026-06-23:cookies.json 不存在 / 为空时,自动回退到 default.json 的 captured_cookies
+          (后者是用户扫码 capturE 时存的,永久持久;前者只是缓存)
+          避免 -2012 被 main.py 清空后,下次会话永久失联
         """
         try:
             from datetime import datetime
             user_dir = self.get_user_dir(user_name)
             cookies_file = user_dir / "cookies.json"
-            if not cookies_file.exists():
-                return None
-            with open(cookies_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            expires_at = datetime.fromisoformat(data.get("expires_at", datetime.now().isoformat()))
-            if datetime.now() > expires_at:
-                logger.warning(f"Cookies已过期: {user_name}")
-                return None
-            return data.get("cookies")
-        except ValueError:
-            return None
+            cookies_list = None
+            if cookies_file.exists():
+                try:
+                    with open(cookies_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    expires_at = datetime.fromisoformat(data.get("expires_at", datetime.now().isoformat()))
+                    if datetime.now() > expires_at:
+                        logger.warning(f"Cookies已过期: {user_name}")
+                    else:
+                        cookies_list = data.get("cookies")
+                except (json.JSONDecodeError, ValueError) as _e:
+                    logger.debug(f"cookies.json 解析失败(非致命): {_e}")
+
+            # 2026-06-23:cookies.json 空 / 缺失 / 解析失败 → 回退到 default.json captured_cookies
+            if not cookies_list:
+                default_file = user_dir / "default.json"
+                if default_file.exists():
+                    try:
+                        with open(default_file, "r", encoding="utf-8") as f:
+                            default_data = json.load(f)
+                        cap_cookies = (
+                            default_data.get("user_info", {}).get("captured_cookies", {})
+                            if isinstance(default_data, dict) else {}
+                        )
+                        if cap_cookies:
+                            cookies_list = [
+                                {
+                                    "name": name,
+                                    "value": str(value),
+                                    "domain": ".weread.qq.com",
+                                    "path": "/",
+                                }
+                                for name, value in cap_cookies.items()
+                            ]
+                            logger.info(
+                                f"🍪 cookies.json 空,从 default.json captured_cookies 回退重建 "
+                                f"({len(cookies_list)} 个)"
+                            )
+                            # 顺手把重建结果写回 cookies.json,避免下次再重建
+                            self.save_cookies(cookies_list, user_name)
+                    except Exception as _e:
+                        logger.debug(f"captured_cookies 回退失败: {_e}")
+
+            return cookies_list
         except Exception as e:
             logger.error(f"加载Cookies失败: {e}")
             return None

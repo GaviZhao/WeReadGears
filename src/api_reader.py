@@ -114,13 +114,12 @@ class ApiReader:
         if cp and isinstance(cp, dict):
             self.data = dict(cp)
             self.data.pop("s", None)
-            # 2026-06-12: 对齐 funnyzak/weread-bot 不发 sm 字段
-            # sm 是抓包时那本书的"内容摘要"中文,跨书/跨会话时 sm 编码可能
-            # 双重 UTF-8 截断,腾讯服务端对乱码 sm 直接拒收 → 返回 {} → 空跑
-            # 此处彻底 pop sm,后续请求都不发这个字段
-            self.data.pop("sm", None)
-            # 关键:运行时兜底,自动修复历史脏数据里的 mojibake sm 字段
-            # (双层防御:browser.capture_and_save_curl 写盘前也修,但旧数据可能没经过那里)
+            # 2026-06-21: 保留 sm 字段(对齐 funnyzak/weread-bot)
+            # 之前主动 pop sm 的判断是错的:sm 是 captured 时该章节的中文内容摘要,
+            # 腾讯服务端很可能用它跟 c 做交叉校验("你发的 c 章节,内容真的是这段吗?")
+            # 不发 sm → 校验不通过 → 静默返回 {} → 空跑 20 次
+            # 双重 UTF-8 截断的脏数据由下面 _heal_payload_mojibake 兜底修,
+            # 修不好的(没 CJK 字符)才在 _prepare_payload 里 pop 掉
             self._heal_payload_mojibake()
         else:
             self.data = {}
@@ -494,8 +493,13 @@ class ApiReader:
           - ci 在主循环每轮被 _advance_chapter_index 推进过,这里直接用 self.last_chapter_index
         """
         self.data.pop("s", None)
-        # 2026-06-12: 双保险,每轮 payload 都不发 sm
-        self.data.pop("sm", None)
+        # 2026-06-21: sm 字段保留,跟 funnyzak/weread-bot 对齐
+        # funnyzak _prepare_read_payload 只 pop('s', None),不动 sm
+        # sm 是 captured 时该章节的中文摘要,腾讯服务端用 sm 跟 c 做交叉校验,
+        # 不发 sm → 校验不通过 → 静默空 dict
+        # 这里不 pop,保留 captured 的 sm(self.data["sm"] 来自 _init_from_credentials)
+        # 跨书/跨章时 c 会变,sm 跟旧 c 不匹配的问题靠下面 _select_book_and_chapter
+        # 切书时刷新 captured_payload 来解决(下次扫码会带新 sm)
 
         # 同步进度:书/章节 (支持随机切书到任意已配置的书)
         if self.last_book_id:
@@ -517,6 +521,34 @@ class ApiReader:
             self.data["ci"] = self.last_chapter_index
         elif "ci" not in self.data or self.data.get("ci") is None:
             self.data["ci"] = 0
+
+        # 2026-06-23: 关键修复 — 切书时同步更新 sm/co/pr
+        # 腾讯用 sm 跟 c 做交叉校验:sm 必须跟当前 c 是同一章节的内容,
+        # co 是当前 c 章节内的字符偏移,pr 是当前 c 章节内的进度百分比
+        # 之前代码只在初始化时设置一次(来自 captured payload = 扫码时打开的那本书),
+        # 切到其他书后 b/c 变了但 sm/co/pr 还是旧书的 → 错配 → 静默拒绝 → 时长不入账
+        # 修复:每轮重读 self._book_chapter_cache[last_book_id].heartbeat_context,
+        # 用每本书独立的真实 sm/co/pr 覆盖
+        if self.last_book_id:
+            cached = self._book_chapter_cache.get(self.last_book_id) or {}
+            hb_ctx = cached.get("heartbeat_context") or {}
+            if hb_ctx:
+                # sm:章节内容预览(腾讯用 sm 跟 c 交叉校验)
+                sm_new = hb_ctx.get("sm", "")
+                if sm_new and sm_new != self.data.get("sm"):
+                    self.data["sm"] = sm_new
+                # co:章节内字符偏移(每章独立,必须跟 c 对齐)
+                co_new = hb_ctx.get("co", "")
+                if co_new != "" and str(co_new) != str(self.data.get("co", "")):
+                    self.data["co"] = co_new
+                # pr:章节进度百分比(每章独立,必须跟 c 对齐)
+                pr_new = hb_ctx.get("pr", "")
+                if pr_new != "" and str(pr_new) != str(self.data.get("pr", "")):
+                    self.data["pr"] = pr_new
+
+        # pr 字段:不动,保持 captured 时的值(对齐 funnyzak/weread-bot)
+        # funnyzak _prepare_read_payload 完全不更新 pr,只更新 s/b/c/ci/ct/rt/ts/rn/sg
+        # pr 调整不在 funnyzak 范围内,本项目也保持原状
 
         # 关键:应用 captured 的 ps/pc,确保会话身份一致
         self._apply_user_identity()
@@ -946,6 +978,12 @@ class ApiReader:
                     )
 
                     check_result = await self._check_response(response)
+                    # 2026-06-23 DEBUG: 打印完整响应,排查"成功但不计入微信读"问题
+                    try:
+                        _resp_body = response.text[:300]
+                        logger.info(f"[DIAG-RESP] ci={self.data.get('ci')} pr={self.data.get('pr')} co={self.data.get('co')} rt={self.data.get('rt')} → {len(response.text)}B: {_resp_body}")
+                    except Exception as _e:
+                        logger.debug(f"resp dump 失败: {_e}")
                     if check_result is True:
                         self.total_reads += 1
                         last_time = int(time.time())
@@ -1328,12 +1366,32 @@ class ApiReader:
                             f"📦 命中磁盘章节缓存: {book_id[:12]} ({len(chapters)}章, "
                             f"fetched_at={disk_cached.get('fetched_at', '?')})"
                         )
-                        self._book_chapter_cache[book_id] = {
-                            "chapters": chapters,
-                            "first_chapter_uid": first_uid,
-                            "first_chapter_idx": disk_cached.get("first_chapter_idx", 0),
-                        }
-                        return self._book_chapter_cache[book_id]
+                        # 2026-06-23: heartbeat_context 从磁盘也加载进来 — 跨书时
+                        # sm/co/pr 跟 b/c 必须配套,否则腾讯静默拒收
+                        hb_ctx_disk = disk_cached.get("heartbeat_context") or {}
+                        # 2026-06-23: 旧缓存(2026-06-23 之前抓的)没有 heartbeat_context
+                        # 字段,需要 refetch 一次升级。一次性成本,后续会话秒开
+                        if not hb_ctx_disk and book_id not in getattr(self, "_refetched_for_hb_ctx", set()):
+                            if not hasattr(self, "_refetched_for_hb_ctx"):
+                                self._refetched_for_hb_ctx = set()
+                            self._refetched_for_hb_ctx.add(book_id)
+                            logger.info(
+                                f"♻️ 旧缓存缺 heartbeat_context,refetch 升级: {book_id[:12]}"
+                            )
+                            # 删磁盘缓存 → 下面的 Playwright 路径会重新抓
+                            try:
+                                user_data_manager.delete_chapters(self.user_name, book_id)
+                            except Exception as _e:
+                                logger.debug(f"删旧缓存失败(非致命): {_e}")
+                            # 落下去走 Playwright 路径,这里不 return
+                        else:
+                            self._book_chapter_cache[book_id] = {
+                                "chapters": chapters,
+                                "first_chapter_uid": first_uid,
+                                "first_chapter_idx": disk_cached.get("first_chapter_idx", 0),
+                                "heartbeat_context": hb_ctx_disk,
+                            }
+                            return self._book_chapter_cache[book_id]
         except Exception as e:
             logger.debug(f"磁盘章节缓存查询失败(非致命): {e}")
 
@@ -1518,29 +1576,15 @@ class ApiReader:
         self._book_ci_counters[book_id] = cur
         self.last_chapter_index = cur
 
-        # 关键:根据 ci 索引到磁盘缓存,选对应的真 chapterUid 作为新 c
-        # 否则 c 一直不变(磁盘 first chapter),腾讯识别到"重复请求同一章"会风控拒收
-        cached = self._book_chapter_cache.get(book_id) or {}
-        chapters = cached.get("chapters") or []
-        if chapters:
-            # 找到 chapterIdx 最接近 cur 的那个章节
-            # 章节不一定从 1 开始(可能从 5/10 起步),用排序后按位置索引
-            sorted_chapters = sorted(
-                [c for c in chapters if c.get("chapterIdx") is not None],
-                key=lambda x: x.get("chapterIdx", 0)
-            )
-            if sorted_chapters:
-                # ci 1 → 第一个(0);ci 2 → 第二个(1);...;超过 → 最后一个
-                if cur >= 1 and cur <= len(sorted_chapters):
-                    target_chap = sorted_chapters[cur - 1]
-                else:
-                    target_chap = sorted_chapters[min(cur - 1, len(sorted_chapters) - 1)]
-                new_c = target_chap.get("chapterUid", "")
-                if new_c and new_c != self.last_chapter_id:
-                    self.last_chapter_id = new_c
-                    logger.debug(
-                        f"翻页: book={book_id[:12]} ci={cur} → c={new_c[:16]}"
-                    )
+        # 2026-06-21: 删除"单本书内翻页改 c"逻辑
+        # 旧逻辑试图根据 ci 索引到磁盘缓存选对应 chapterUid 当新 c,但
+        # 当前 chapters 缓存是"1 条 chapterIdx=N 占位"格式,索引永远拿到同一条
+        # → new_c 永远是 first_chapter_uid → self.last_chapter_id 不变 → 死循环
+        # 腾讯服务端看"同一 chapterUid 连续 N 次心跳"会风控判为重放 → 拒收 → 空响应
+        #
+        # 新策略:单本书内 c 保持不变(first_chapter_uid),靠 ci 推进模拟翻页进度
+        # 跨书切换 c 才会变(由 _select_book_and_chapter 处理)
+        # 这跟 funnyzak/weread-bot 主循环一致(funnyzak 也不在单本书内改 c)
 
     async def stop_reading(self):
         self.should_stop = True
