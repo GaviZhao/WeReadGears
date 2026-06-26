@@ -54,6 +54,9 @@ class BrowserManager:
         self._current_user: str = ""
         self.last_captured = {}
         self.last_captured_at = ""
+        # 2026-06-26: 模拟模式跑完后,从浏览器 context 提取 cookies 写回磁盘的开关
+        # 默认开启:reader.py 跑完会调用 _persist_context_cookies()
+        self._persist_cookies_after_run: bool = True
         self._pending_login_data: Optional[Dict[str, Any]] = None
         # 标记 cookie 失效 / 需要重新登录(API 或页面访问 401 时设 true)
         self._needs_relogin: bool = False
@@ -1667,6 +1670,51 @@ class BrowserManager:
                     return True
             return False
         except Exception:
+            return False
+
+    async def _persist_context_cookies(self) -> bool:
+        """从浏览器 context 提取 cookies,写回磁盘 cookies.json
+
+        2026-06-26 新增:模拟模式(浏览器模式)跑完后调用,把浏览器 context 里的
+        有效 cookies(包括 wr_skey/wr_vid)同步到磁盘。这样:
+          - 下次容器重启后,API 模式能用磁盘 cookies
+          - 浏览器初始化时直接从磁盘加载(已登录)
+          - 避免"disk cookies 已被清空,但浏览器 context 还有效 cookies"的不一致
+
+        调用时机:
+          - reader.py:start_reading() 的 finally 块(无论成功失败)
+          - 任何需要"持久化浏览器登录态"的场景
+
+        返回:True=成功写回,False=无 cookies 或失败
+        """
+        if not self.context:
+            logger.debug("_persist_context_cookies: 浏览器未初始化,跳过")
+            return False
+        if not self._persist_cookies_after_run:
+            logger.debug("_persist_context_cookies: 已禁用,跳过")
+            return False
+        try:
+            cookies = await self.context.cookies()
+            if not cookies:
+                logger.debug("_persist_context_cookies: 浏览器 context 无 cookies,跳过")
+                return False
+            # 检查是否有 wr_skey(没登录态的 cookies 没必要写)
+            has_wr_skey = any(c.get("name") == "wr_skey" and c.get("value") for c in cookies)
+            if not has_wr_skey:
+                logger.debug("_persist_context_cookies: 浏览器未登录(wr_skey 缺失),跳过")
+                return False
+            # 决定写到哪个用户目录
+            user_name = self._current_user or "default"
+            from src.cookie_manager import cookie_manager
+            cookie_manager.save(cookies, user_name=user_name)
+            logger.info(
+                f"🍪 浏览器 cookies 已同步到磁盘: user={user_name}, "
+                f"{len(cookies)} 个 cookie(含 wr_skey),"
+                f"下次 API 模式可用"
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"_persist_context_cookies 失败(非致命): {e}")
             return False
 
     async def _refresh_cookie_for_lazy_load(self) -> bool:

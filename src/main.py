@@ -18,6 +18,7 @@ from src.cookie_manager import cookie_manager
 from src.session_manager import session_manager
 from src.daemon import daemon_manager
 from src.history_manager import history_manager
+from src.run_mode_manager import run_mode_manager
 import uvicorn
 
 
@@ -318,15 +319,26 @@ async def main():
     try:
         await browser_manager.initialize()
 
-        if mode == "scheduled":
-            await run_scheduled_mode()
-            scheduler.register_weekly_reminder(notifier.notify_weekly_reward)
-        elif mode == "daemon":
-            await run_daemon_mode()
-            scheduler.register_weekly_reminder(notifier.notify_weekly_reward)
-        elif mode == "immediate":
-            scheduler.register_weekly_reminder(notifier.notify_weekly_reward)
-            asyncio.create_task(startup_reading_and_schedule())
+        # 注册模式启动回调:每次切换到任何自动模式时,都重新注册 weekly_reminder
+        # (scheduler.stop() 后 job 会被清,这里保证新模式下提醒任务在位)
+        run_mode_manager.register_on_start(
+            lambda: scheduler.register_weekly_reminder(notifier.notify_weekly_reward)
+        )
+
+        # 启动模式(委托给 run_mode_manager,这样后续可通过 /api/run-mode 热切换)
+        # 注意:这里用 switch_mode 而不是直接 await daemon_manager.run(),
+        # 否则 await 会阻塞整个 main(),uvicorn 永远起不来。
+        if mode in ("scheduled", "daemon", "immediate"):
+            try:
+                await run_mode_manager.switch_mode(mode)
+            except Exception as e:
+                logger.error(f"初始启动 {mode} 模式失败: {e}")
+                # 降级到 immediate,不阻塞 uvicorn 启动
+                if mode != "immediate":
+                    await run_mode_manager.switch_mode("immediate")
+        else:
+            logger.warning(f"未知启动模式 '{mode}',默认按 immediate 处理")
+            await run_mode_manager.switch_mode("immediate")
 
         # 启动后台定期 cookie 续期(独立于阅读任务,让 wr_skey 始终保持有效)
         asyncio.create_task(periodic_cookie_refresh())

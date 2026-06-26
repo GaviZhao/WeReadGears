@@ -32,6 +32,7 @@ from src.cookie_manager import cookie_manager
 from src.credential_manager import credential_manager
 from src.history_manager import history_manager
 from src.session_manager import session_manager
+from src.run_mode_manager import run_mode_manager
 
 
 @asynccontextmanager
@@ -140,6 +141,20 @@ async def index(request: Request):
     network_config = config.get("network", {})
     daemon_config = config.get("daemon", {})
     history_config = config.get("history", {})
+    # 当前实际运行模式(供 UI 高亮 + 状态展示),从 run_mode_manager 拿真实状态
+    # 而不是只看 daemon.enabled 配置(YAML 写 true 不代表进程在跑 daemon)
+    try:
+        run_mode_status = run_mode_manager.get_status()
+    except Exception:
+        run_mode_status = {
+            "current_mode": "idle",
+            "daemon_enabled": daemon_config.get("enabled", False),
+            "daemon_daily_session_count": 0,
+            "daemon_max_daily_sessions": daemon_config.get("max_daily_sessions", 12),
+            "daemon_session_interval": daemon_config.get("session_interval", "120-180"),
+            "is_running": False,
+            "scheduler_next_run": None,
+        }
 
     browser_status = browser_manager.get_login_status()
     # 先按 status 决定,但还要校验 user 是不是 config 里真实存在的(避免 _current_user 残留)
@@ -207,6 +222,7 @@ async def index(request: Request):
         },
         "network": network_config,
         "daemon": daemon_config,
+        "run_mode_status": run_mode_status,
         "history": {
             "enabled": history_config.get("enabled", True),
             "max_entries": history_config.get("max_entries", 50)
@@ -361,6 +377,77 @@ async def trigger_reading():
     return JSONResponse({"status": "ok", "message": "阅读任务已启动"})
 
 
+# === 运行模式热切换 ===
+# Web UI 点"守护模式"或"定时模式"卡片时调用
+# 返回:当前实际模式 + daemon 状态(今日已跑次数/上限/下次运行)
+@app.get("/api/run-mode")
+async def get_run_mode():
+    """查询当前运行模式"""
+    try:
+        return JSONResponse({
+            "status": "ok",
+            **run_mode_manager.get_status(),
+        })
+    except Exception as e:
+        logger.exception(f"查询运行模式失败: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@app.post("/api/run-mode")
+async def switch_run_mode(request: Request):
+    """切换运行模式(immediate/scheduled/daemon/idle)
+
+    Body JSON: {"mode": "daemon"}
+
+    行为:
+      - daemon: 停止当前模式 → 启动 daemon 循环(每天最多 12 次,间隔 120-180 分钟)
+      - scheduled: 停止当前模式 → 启动 cron 调度
+      - immediate: 停止当前模式 → 立即跑一次 + 启动 cron 调度
+      - idle: 停止所有自动任务,只保留手动触发
+
+    同步把 startup_mode + daemon.enabled/schedule.enabled 写到 YAML,
+    容器下次重启时也能恢复到刚切换的模式。
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "invalid JSON body"},
+            status_code=400,
+        )
+    mode = (body.get("mode") or "").lower().strip()
+    if mode not in run_mode_manager.VALID_MODES:
+        return JSONResponse(
+            {
+                "status": "error",
+                "message": f"未知模式 '{mode}',支持: {', '.join(run_mode_manager.VALID_MODES)}",
+            },
+            status_code=400,
+        )
+
+    try:
+        result = await run_mode_manager.switch_mode(mode)
+        status = run_mode_manager.get_status()
+        logger.info(f"[web] 切换运行模式: {mode} → {status['current_mode']}")
+        return JSONResponse({
+            "status": "ok",
+            "message": {
+                "daemon": "已切换到守护模式(每 2-3 小时跑一次,每天最多 12 次)",
+                "scheduled": "已切换到定时模式(cron 调度)",
+                "immediate": "已切换到立即模式(立即跑一次 + cron 调度)",
+                "idle": "已停止所有自动任务,仅手动触发",
+            }.get(mode, f"已切换到 {mode}"),
+            "switch_result": result,
+            **status,
+        })
+    except Exception as e:
+        logger.exception(f"切换运行模式失败: {e}")
+        return JSONResponse(
+            {"status": "error", "message": str(e)},
+            status_code=500,
+        )
+
+
 @app.post("/api/restart")
 async def api_restart():
     """触发 Python 进程退出,容器会自动 restart(用于 dev 改代码后快速生效)"""
@@ -482,24 +569,24 @@ async def get_api_reading_progress():
 # 优先用 api_reader 实例的 _book_ci_counters(每本书独立的 ci 计数)
 # 进程重启后会丢(但下次跑起来又会自动重计),够用
 #
-# 2026-06-12 优化:
-#   - chapters_total 写死 = 58(用户要求每本书都默认 58)
-#   - 缺失 json 时自动生成一个(chapters_total=58 的占位)
-#   - 用户可在 web 端书籍卡手动改 chapters_total (POST 端点),
-#     改值存磁盘 chapters json 的 chapters_total 字段,优先级最高
+# 2026-06-26 重构:
+#   - 用统一的 _is_chapter_cache_payload_valid() 校验缓存完整性
+#   - 缓存不完整(缺 heartbeat_context) → 返回 cache_valid=False,前端显示"待 fetch"
+#   - 不再回退到"默认 58"然后装作完整 — 让用户看到真实状态
 @app.get("/api/book-progress")
 async def book_progress(book_id: str = ""):
-    """返回指定书的当前 ci(章节顺序号)+ 总章节数(默认 58)"""
-    # 2026-06-12: 总章节数写死 58
+    """返回指定书的当前 ci(章节顺序号)+ 总章节数 + 缓存有效性"""
+    # 2026-06-26: 默认 58 保留(老逻辑兼容),但仅当磁盘缓存完全不存在时用
     CHAPTERS_TOTAL_DEFAULT = 58
 
     if not book_id.strip():
-        return JSONResponse({"book_id": "", "ci": 0, "chapters_total": CHAPTERS_TOTAL_DEFAULT})
+        return JSONResponse({"book_id": "", "ci": 0, "chapters_total": CHAPTERS_TOTAL_DEFAULT, "cache_valid": False})
     ci = 0
-    chapters_total = CHAPTERS_TOTAL_DEFAULT  # 默认 58
-    chapters_total_user_set = None  # 用户手动改的值
+    chapters_total = CHAPTERS_TOTAL_DEFAULT
+    chapters_total_user_set = None
     chapters_json_path = None
-    cached_for_response = None  # 整份磁盘缓存,POST 端点写回时复用
+    cached_for_response = None
+    cache_valid = False  # 2026-06-26: 标记磁盘缓存是否完整(有 hb_ctx)
     try:
         api = session_manager.api_reader if hasattr(session_manager, 'api_reader') else None
         if api and getattr(api, '_book_ci_counters', None):
@@ -509,11 +596,7 @@ async def book_progress(book_id: str = ""):
         from pathlib import Path as _Path
         from datetime import datetime as _dt
         # 优先拿第一个用户的(任意用户都行)
-        # 2026-06-12 修:Python glob.glob 顺序不稳定(可能拿到 default/ 占位 json 而不是 Gavi/ 真数据),
-        # 改用:1) 排序确保 Gavi 优先 2) 优先选 chapters 非空的 json
         _candidates = sorted(_glob.glob("shared/credentials/*/chapters/" + book_id + ".json"))
-        # 优先级:chapters 非空 + 含真 uid 的 json(说明是用户真实数据,不是占位)
-        # 用 (has_data, -uid_len) 排序,真数据排前
         def _rank(p: str) -> tuple:
             try:
                 with open(p, "r", encoding="utf-8") as f:
@@ -533,38 +616,31 @@ async def book_progress(book_id: str = ""):
             except Exception:
                 continue
             cached_for_response = cached
+            # 2026-06-26: 用统一校验方法判断缓存完整性
+            try:
+                from src.api_reader import _is_chapter_cache_payload_valid
+                cache_valid = _is_chapter_cache_payload_valid(cached)
+            except Exception:
+                cache_valid = False
             if cached and isinstance(cached.get("chapters"), list) and cached.get("chapters"):
-                # 2026-06-12: 磁盘有真实 chapters
-                # 新格式(参考 1d5322805cfd751d5aff1ea.json)只有 1 条 chapterIdx=N,
-                # 旧逻辑 len(chapters) < 20 触发回退会误伤 → 改为:
-                #   - chapters_total 字段已设(用户明示 N) → 不再判 len,信任字段
-                #   - chapters_total 字段没设(原始抓的全量列表) → 用 len,兜底 <20 当脏数据
+                # 优先级:用户手设 chapters_total > 默认 58
                 has_user_total = isinstance(cached.get("chapters_total"), int) and cached["chapters_total"] > 0
                 if has_user_total:
-                    # 用户已明示 N → 跳过 len 校验,直接 trust chapters_total
-                    pass
+                    pass  # 信任用户/系统配置
                 else:
                     if len(cached["chapters"]) < 20:
-                        logger.warning(
-                            f"⚠️ 磁盘 chapters 数 <20 视为脏数据,回退默认 58: "
-                            f"{book_id[:12]} (len={len(cached['chapters'])})"
-                        )
                         chapters_total = CHAPTERS_TOTAL_DEFAULT
                     else:
                         chapters_total = len(cached["chapters"])
             break
 
-        # 用户手动改的 chapters_total 优先级最高(任何 disk 缓存里读到的)
+        # 用户手动改的 chapters_total 优先级最高
         if cached_for_response and isinstance(cached_for_response.get("chapters_total"), int):
             ut = cached_for_response["chapters_total"]
             if ut > 0:
                 chapters_total_user_set = ut
                 chapters_total = ut
 
-        # 2026-06-12: 缺失 json 时**不再自动生成占位**(用户严禁创建 default 目录)
-        # 真实数据由 _ensure_chapter_json 在 start_reading 入口用 Playwright 抓取并落盘
-        # GET 端点只读,查不到就返回 N=58 默认值(chapters_total_user_set=False)
-        # 真正想生成 json,得在 Web UI 触发阅读开始
         if chapters_json_path is None:
             logger.debug(
                 f"[chapters] 缺失 json(不自动生成): {book_id[:12]},默认 N={CHAPTERS_TOTAL_DEFAULT}"
@@ -575,6 +651,7 @@ async def book_progress(book_id: str = ""):
         "book_id": book_id,
         "ci": ci,
         "chapters_total": chapters_total,
+        "cache_valid": cache_valid,  # 2026-06-26 新增:让前端能区分"完整缓存" vs "占位缓存"
     })
 
 

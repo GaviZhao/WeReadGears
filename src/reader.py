@@ -367,6 +367,14 @@ class Reader:
             }
         finally:
             self.is_reading = False
+            # 2026-06-26: 模拟模式跑完后,从浏览器 context 同步 cookies 到磁盘
+            # 如果浏览器还在登录(wr_skey 有效),写回 cookies.json,下次 API 模式直接用
+            # 关键场景:API -2012 后 fallback 到模拟模式 → 模拟模式跑完 → 这里写回 →
+            #          后续 immediate 模式触发时直接用磁盘 cookies 跑 API
+            try:
+                await browser_manager._persist_context_cookies()
+            except Exception as _e:
+                logger.debug(f"reader 完成后同步 cookies 异常(非致命): {_e}")
 
     async def stop_reading(self):
         logger.info("停止阅读")

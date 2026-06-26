@@ -696,17 +696,33 @@
             <!-- 定时与守护进程(单选互斥,只两个选项) -->
             <div class="card">
                 <div class="card-title">定时与守护进程</div>
-                <p class="card-sub">两种模式二选一:不选时仅手动触发</p>
+                <p class="card-sub">两种模式二选一:不选时仅手动触发。点击下方卡片<strong>立即生效</strong>(无需保存)。</p>
+
+                <!-- 当前运行模式徽章(由 refreshRunModeStatus 实时刷新) -->
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+                    <span id="currentRunModeBadge"
+                          style="display:inline-block;padding:4px 12px;border-radius:12px;background:{{ '#f59e0b' if run_mode_status.current_mode == 'daemon' else ('#10b981' if run_mode_status.current_mode == 'scheduled' else ('#3b82f6' if run_mode_status.current_mode == 'immediate' else '#8b8fa8')) }};color:#fff;font-size:13px;font-weight:600">
+                        当前模式: {{ {'idle':'手动','immediate':'立即','scheduled':'定时','daemon':'守护'}.get(run_mode_status.current_mode, run_mode_status.current_mode) }}
+                    </span>
+                    <span id="daemonStatusInfo"
+                          style="display:{{ 'inline' if run_mode_status.current_mode == 'daemon' else 'none' }};font-size:13px;color:var(--text-2)">
+                        今日已跑 <b>{{ run_mode_status.daemon_daily_session_count }}</b> / {{ run_mode_status.daemon_max_daily_sessions }} 次 · 间隔 <b>{{ run_mode_status.daemon_session_interval }}</b> 分钟
+                    </span>
+                    <span id="scheduleStatusInfo"
+                          style="display:{{ 'inline' if run_mode_status.current_mode in ('scheduled','immediate') and run_mode_status.scheduler_next_run else 'none' }};font-size:13px;color:var(--text-2)">
+                        下次运行: <b>{{ run_mode_status.scheduler_next_run or '' }}</b>
+                    </span>
+                </div>
 
                 <div class="mode-toggle-row">
-                    <div class="mode-toggle-card {{ 'active' if schedule.enabled else '' }}" id="modeSchedule" onclick="selectRunMode('schedule')">
+                    <div class="mode-toggle-card {{ 'active' if run_mode_status.current_mode in ('scheduled','immediate') else '' }}" id="modeSchedule" onclick="selectRunMode('schedule')">
                         <div class="mtc-radio"></div>
                         <div class="mtc-body">
                             <div class="mtc-name">定时模式</div>
                             <div class="mtc-desc">每天在指定时间点自动阅读</div>
                         </div>
                     </div>
-                    <div class="mode-toggle-card {{ 'active' if daemon.enabled else '' }}" id="modeDaemon" onclick="selectRunMode('daemon')">
+                    <div class="mode-toggle-card {{ 'active' if run_mode_status.current_mode == 'daemon' else '' }}" id="modeDaemon" onclick="selectRunMode('daemon')">
                         <div class="mtc-radio"></div>
                         <div class="mtc-body">
                             <div class="mtc-name">守护模式</div>
@@ -716,7 +732,7 @@
                 </div>
 
                 <!-- 定时模式配置 -->
-                <div class="collapsible-body {{ 'open' if schedule.enabled else '' }}" id="schedulePanel">
+                <div class="collapsible-body {{ 'open' if run_mode_status.current_mode in ('scheduled','immediate') else '' }}" id="schedulePanel">
                     <div class="section-title">每日阅读时间</div>
                     <div class="form-group">
                         <div id="timeSlots" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px"></div>
@@ -728,7 +744,7 @@
                 </div>
 
                 <!-- 守护模式配置 -->
-                <div class="collapsible-body {{ 'open' if daemon.enabled else '' }}" id="daemonPanel">
+                <div class="collapsible-body {{ 'open' if run_mode_status.current_mode == 'daemon' else '' }}" id="daemonPanel">
                     <div class="section-title">守护参数</div>
                     <div class="form-row">
                         <div class="form-group">
@@ -743,8 +759,8 @@
                 </div>
 
                 <!-- 隐藏字段:由前端 selectRunMode 维护 schedule_enabled / daemon_enabled 的实际值 -->
-                <input type="hidden" name="schedule_enabled" id="scheduleEnabled" value="{{ 'true' if schedule.enabled else 'false' }}">
-                <input type="hidden" name="daemon_enabled" id="daemonEnabled" value="{{ 'true' if daemon.enabled else 'false' }}">
+                <input type="hidden" name="schedule_enabled" id="scheduleEnabled" value="{{ 'true' if run_mode_status.current_mode in ('scheduled','immediate') else 'false' }}">
+                <input type="hidden" name="daemon_enabled" id="daemonEnabled" value="{{ 'true' if run_mode_status.current_mode == 'daemon' else 'false' }}">
                 <input type="hidden" name="schedule_timezone" value="{{ schedule.timezone }}">
             </div>
 
@@ -1935,13 +1951,24 @@ function refreshHeatmap() {
 window.refreshHeatmap = refreshHeatmap;
 
 // === 定时/守护 互斥单选 ===
-function selectRunMode(mode) {
+// 点击后:(1) 立即更新 UI (2) 调用 /api/run-mode 真切换后端模式
+// API 失败时回滚 UI(给用户清晰反馈)
+async function selectRunMode(mode) {
     var sch = document.getElementById('modeSchedule');
     var dae = document.getElementById('modeDaemon');
     var sp = document.getElementById('schedulePanel');
     var dp = document.getElementById('daemonPanel');
     var sH = document.getElementById('scheduleEnabled');
     var dH = document.getElementById('daemonEnabled');
+
+    // 记下旧状态,失败时回滚
+    var prevActiveSch = sch && sch.classList.contains('active');
+    var prevActiveDae = dae && dae.classList.contains('active');
+    var prevSOpen = sp && sp.classList.contains('open');
+    var prevDOpen = dp && dp.classList.contains('open');
+    var prevSVal = sH ? sH.value : '';
+    var prevDVal = dH ? dH.value : '';
+
     [sch, dae].forEach(function(el) { el && el.classList.remove('active'); });
     sp && sp.classList.remove('open');
     dp && dp.classList.remove('open');
@@ -1956,12 +1983,138 @@ function selectRunMode(mode) {
         if (sH) sH.value = 'false';
         if (dH) dH.value = 'true';
     } else {
-        // 都关闭 = 手动模式(无需 active 卡片)
+        // 都关闭 = 手动模式(idle)
         if (sH) sH.value = 'false';
         if (dH) dH.value = 'false';
     }
+
+    // 调后端真切换(模式串:schedule→scheduled, idle 直接传 idle)
+    var apiMode = mode === 'schedule' ? 'scheduled' : (mode === 'daemon' ? 'daemon' : 'idle');
+    try {
+        showToast('正在切换到 ' + apiMode + ' 模式...', 'info', 1500);
+        var r = await fetch('/api/run-mode', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({mode: apiMode})
+        });
+        var d = await r.json();
+        if (d.status === 'ok') {
+            showToast(d.message || ('已切换到 ' + apiMode), 'success', 2500);
+            refreshRunModeStatus();
+        } else {
+            // 失败回滚
+            if (prevActiveSch) sch && sch.classList.add('active'); else sch && sch.classList.remove('active');
+            if (prevActiveDae) dae && dae.classList.add('active'); else dae && dae.classList.remove('active');
+            if (prevSOpen) sp && sp.classList.add('open'); else sp && sp.classList.remove('open');
+            if (prevDOpen) dp && dp.classList.add('open'); else dp && dp.classList.remove('open');
+            if (sH) sH.value = prevSVal;
+            if (dH) dH.value = prevDVal;
+            showToast('切换失败: ' + (d.message || '未知错误'), 'error', 4000);
+        }
+    } catch(e) {
+        // 失败回滚
+        if (prevActiveSch) sch && sch.classList.add('active'); else sch && sch.classList.remove('active');
+        if (prevActiveDae) dae && dae.classList.add('active'); else dae && dae.classList.remove('active');
+        if (prevSOpen) sp && sp.classList.add('open'); else sp && sp.classList.remove('open');
+        if (prevDOpen) dp && dp.classList.add('open'); else dp && dp.classList.remove('open');
+        if (sH) sH.value = prevSVal;
+        if (dH) dH.value = prevDVal;
+        showToast('切换失败: ' + e, 'error', 4000);
+    }
 }
 window.selectRunMode = selectRunMode;
+
+// === 当前运行模式状态展示 ===
+// 从 /api/run-mode 拉真实状态,渲染到 UI 上
+var _RUN_MODE_NAMES = {
+    'idle': '手动',
+    'immediate': '立即',
+    'scheduled': '定时',
+    'daemon': '守护',
+};
+var _RUN_MODE_COLORS = {
+    'idle': '#8b8fa8',
+    'immediate': '#3b82f6',
+    'scheduled': '#10b981',
+    'daemon': '#f59e0b',
+};
+async function refreshRunModeStatus() {
+    try {
+        var r = await fetch('/api/run-mode');
+        var d = await r.json();
+        if (!d || d.status !== 'ok') return;
+        var mode = d.current_mode || 'idle';
+        var name = _RUN_MODE_NAMES[mode] || mode;
+        var color = _RUN_MODE_COLORS[mode] || '#8b8fa8';
+
+        // 1) 模式徽章
+        var badge = document.getElementById('currentRunModeBadge');
+        if (badge) {
+            badge.textContent = '当前模式: ' + name;
+            badge.style.background = color;
+        }
+
+        // 2) 守护状态详情(仅 daemon 模式时显示)
+        var daemonInfo = document.getElementById('daemonStatusInfo');
+        if (daemonInfo) {
+            if (mode === 'daemon') {
+                var cnt = d.daemon_daily_session_count || 0;
+                var max = d.daemon_max_daily_sessions || 12;
+                var interval = d.daemon_session_interval || '120-180';
+                daemonInfo.innerHTML =
+                    '今日已跑 <b>' + cnt + '</b> / ' + max + ' 次 ' +
+                    '· 间隔 <b>' + interval + '</b> 分钟';
+                daemonInfo.style.display = 'block';
+            } else {
+                daemonInfo.style.display = 'none';
+            }
+        }
+
+        // 3) 调度器下次运行(仅 scheduled/immediate 模式)
+        var schedInfo = document.getElementById('scheduleStatusInfo');
+        if (schedInfo) {
+            if ((mode === 'scheduled' || mode === 'immediate') && d.scheduler_next_run) {
+                schedInfo.innerHTML = '下次运行: <b>' + d.scheduler_next_run + '</b>';
+                schedInfo.style.display = 'block';
+            } else {
+                schedInfo.style.display = 'none';
+            }
+        }
+
+        // 4) 同步卡片 active 状态(防止其他设备切换后本地状态过期)
+        var sch = document.getElementById('modeSchedule');
+        var dae = document.getElementById('modeDaemon');
+        var sp = document.getElementById('schedulePanel');
+        var dp = document.getElementById('daemonPanel');
+        var sH = document.getElementById('scheduleEnabled');
+        var dH = document.getElementById('daemonEnabled');
+        if (mode === 'daemon') {
+            dae && dae.classList.add('active');
+            dp && dp.classList.add('open');
+            sch && sch.classList.remove('active');
+            sp && sp.classList.remove('open');
+            if (sH) sH.value = 'false';
+            if (dH) dH.value = 'true';
+        } else if (mode === 'scheduled' || mode === 'immediate') {
+            sch && sch.classList.add('active');
+            sp && sp.classList.add('open');
+            dae && dae.classList.remove('active');
+            dp && dp.classList.remove('open');
+            if (sH) sH.value = 'true';
+            if (dH) dH.value = 'false';
+        } else {
+            sch && sch.classList.remove('active');
+            dae && dae.classList.remove('active');
+            sp && sp.classList.remove('open');
+            dp && dp.classList.remove('open');
+            if (sH) sH.value = 'false';
+            if (dH) dH.value = 'false';
+        }
+    } catch(e) {
+        // 静默失败,5 秒后再试
+    }
+}
+window.refreshRunModeStatus = refreshRunModeStatus;
 
 // === 通知通道卡片:toggle 联动 + 总开关联动 ===
 // === 通知通道 ch-row 联动:总开关联动 + 单个 toggle 联动 row 输入灰态 + 更新 group count ===
@@ -2524,6 +2677,9 @@ function init() {
     // 阅读统计 + 热力图轮询(60s 一次)
     setInterval(refreshStatistics, 60000);
     setInterval(refreshHeatmap, 60000);
+    // 当前运行模式轮询(15s 一次,保证跨设备/手动保存配置后状态快速同步)
+    refreshRunModeStatus();
+    setInterval(refreshRunModeStatus, 15000);
     // 监听 weeklyRewardToggle 关闭时刷新状态
     var wToggle = document.getElementById('weeklyRewardToggle');
     if (wToggle) wToggle.addEventListener('change', refreshWeeklyStatus);

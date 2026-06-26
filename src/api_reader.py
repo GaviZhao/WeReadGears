@@ -16,6 +16,47 @@ from src.http_client import http_client, HttpClient
 KEY = "3c5c8717f3daf09iop3423zafeqoi"
 
 
+# ============================================================
+# 章节缓存统一校验 — 整个项目所有"读 chapters 缓存"的地方
+# 都必须用这个方法校验,避免"看起来像完整但缺 hb_ctx"的脏数据
+# 被误用 → 腾讯服务端 sm/co 错配 → 静默拒收
+# ============================================================
+def _is_chapter_cache_payload_valid(payload: Optional[Dict[str, Any]]) -> bool:
+    """校验章节缓存是否完整可用。
+
+    完整缓存必须包含:
+      - chapters_total (int > 0):用户/系统配置的总章节数(主循环靠这个判断 ci 越界)
+      - first_chapter_uid (str 非空):首章真实 chapter_uid(用作 c)
+      - heartbeat_context.sm (str 非空):首章章节首句,腾讯用 sm 跟 c 做交叉校验
+                                  **缺这个字段时,请求会被服务端静默丢弃**
+                                  (返回 succ=1 但时长不入账,这就是用户之前看到的 bug)
+
+    Args:
+        payload: 磁盘/内存的章节缓存 dict(可能是 None)
+
+    Returns:
+        bool: True=完整可用;False=不完整,需要 fetch 重建
+    """
+    if not payload or not isinstance(payload, dict):
+        return False
+    # 1) chapters_total 必须 > 0
+    total = payload.get("chapters_total")
+    if not isinstance(total, int) or total <= 0:
+        return False
+    # 2) first_chapter_uid 必须非空
+    first_uid = payload.get("first_chapter_uid")
+    if not first_uid or not isinstance(first_uid, str) or not first_uid.strip():
+        return False
+    # 3) heartbeat_context.sm 必须非空 — 这是修复 sm/co 错配的关键校验
+    hb_ctx = payload.get("heartbeat_context") or {}
+    if not isinstance(hb_ctx, dict):
+        return False
+    sm = hb_ctx.get("sm")
+    if not sm or not isinstance(sm, str) or not sm.strip():
+        return False
+    return True
+
+
 @dataclass
 class UserCredentials:
     user_id: str = ""
@@ -346,18 +387,17 @@ class ApiReader:
         """
         确保指定书在 shared/credentials/<self.user_name>/chapters/<book_id>.json 存在
 
-        2026-06-12: 用户洞察 — **微信读书所有其他章节字符串不变,只有 idx 变**,
-        所以 chapters 数组**只放 1 条**(`chapterIdx = N`),主循环通过
-        `_advance_chapter_index` 算 `max-min+1 = N` 即可。参考样本:
-          1d5322805cfd751d5aff1ea.json
-        流程:
-          1) 内存缓存命中 → 直接 return
-          2) 磁盘缓存有真 chapters(数组非空) → 直接 return
-          3) 都没有 → Playwright 只抓首章心跳
-             → 拿到 first_chapter_uid
-             → N = 用户设的 chapters_total / 默认 58
-             → 构造 1 条 chapter(chapterIdx=N, chapterUid=真 uid 或占位)
-             → save_chapters 落盘
+        2026-06-26 重构:
+          之前:磁盘没 chapters 数组时,写"1 条占位 + chapters_total"的缓存
+                (但**没有 heartbeat_context** → sm/co 错配 → 微信读书静默拒收)
+          现在:统一用 _is_chapter_cache_payload_valid() 校验
+                - 缓存完整(有 hb_ctx)→ 跳过
+                - 缓存不完整(没 hb_ctx)→ 删除 + fetch_only_first 重新抓首章
+                - 缓存完全不存在 → fetch_only_first 抓首章
+                - fetch 失败 → 不再写"假完整"的占位,只 warn
+
+        fetch_only_first 模式:只抓首章(快速,~5-10s/本),不翻页累积
+        完整翻页累积留给 _ensure_chapter_for_book(运行时切到该书时再做)
 
         失败不抛异常(非致命,主流程继续)。
         """
@@ -366,85 +406,94 @@ class ApiReader:
         try:
             from src.user_data_manager import user_data_manager as _udm
             from datetime import datetime as _dt
-            # 1) 内存缓存命中
-            if book_id in self._book_chapter_cache:
-                return
-            # 2) 磁盘缓存有真 chapters(数组非空)→ 跳过
-            disk = _udm.load_chapters(self.user_name, book_id)
-            if disk and isinstance(disk, dict) and disk.get("chapters"):
-                return
-            # 3) 都没有 → 走 Playwright 只抓首章
-            CHAPTERS_TOTAL_DEFAULT = 58
-            user_total = None
-            if disk and isinstance(disk, dict) and isinstance(disk.get("chapters_total"), int):
-                if disk["chapters_total"] > 0:
-                    user_total = disk["chapters_total"]
-            N = user_total or CHAPTERS_TOTAL_DEFAULT
-
-            # 调 browser_manager 抓首章
             from src.browser import browser_manager
-            first_info = await browser_manager.fetch_chapter_info_via_page(
-                book_id, user_name=self.user_name, fetch_only_first=True
-            )
-            first_uid = ""
-            first_idx = 0
+
+            # 1) 内存缓存完整 → 直接 return
+            if book_id in self._book_chapter_cache:
+                if _is_chapter_cache_payload_valid(self._book_chapter_cache[book_id]):
+                    return
+                # 内存里有但不完整 → 清掉走 fetch
+                logger.info(f"[chapters] 内存缓存不完整,清掉重 fetch: {book_id[:12]}")
+                self._book_chapter_cache.pop(book_id, None)
+
+            # 2) 磁盘缓存完整 → 加载到内存,return
+            disk = _udm.load_chapters(self.user_name, book_id)
+            if disk and isinstance(disk, dict):
+                if _is_chapter_cache_payload_valid(disk):
+                    logger.info(
+                        f"[chapters] 磁盘缓存完整,直接加载: {book_id[:12]} "
+                        f"({len(disk.get('chapters', []))}章, "
+                        f"has_hb_ctx=True)"
+                    )
+                    self._book_chapter_cache[book_id] = disk
+                    return
+                # 磁盘缓存不完整 → 删了重 fetch,避免下次再误用
+                logger.warning(
+                    f"[chapters] 磁盘缓存不完整(缺 heartbeat_context 等),"
+                    f"删除并重 fetch: {book_id[:12]}"
+                )
+                try:
+                    _udm.delete_chapters(self.user_name, book_id)
+                except Exception:
+                    pass
+                # 重新 load(虽然刚 delete 了,但保险)
+                disk = None
+
+            # 3) fast-fetch:只抓首章,不翻页累积(快速,~5-10s/本)
+            try:
+                first_info = await browser_manager.fetch_chapter_info_via_page(
+                    book_id, user_name=self.user_name, fetch_only_first=True
+                )
+            except Exception as e:
+                logger.warning(f"[chapters] fast-fetch 异常(非致命): {e}")
+                first_info = None
+
             if first_info and first_info.get("first_chapter_uid"):
                 first_uid = first_info["first_chapter_uid"]
-                first_idx = int(first_info.get("first_chapter_idx") or 1)
-
-            # 2026-06-12: 关键 — chapters 数组**只 1 条**,
-            # chapterIdx = N(用户设的总章节数),chapterUid = 真 uid 或空占位
-            # (主循环算 N = max(min) - min(min) + 1 = N-1+1 = N,正确)
-            # 格式参考 1d5322805cfd751d5aff1ea.json
-            if first_uid:
+                # chapters_total 优先级:用户手设(disk.user_set) > fast-fetch 返回 > 默认 58
+                user_total = None
+                if disk and isinstance(disk.get("chapters_total"), int) and disk["chapters_total"] > 0:
+                    user_total = disk["chapters_total"]
+                fetch_total = first_info.get("chapters_total") or first_info.get("first_chapter_idx")
+                N = user_total or fetch_total or 58
                 only_chapter = {
                     "chapterUid": first_uid,
                     "chapterIdx": N,
                     "title": "",
                 }
-            else:
-                # 抓不到真 uid(浏览器没登录 / 该书未上架):用空 uid 占位
-                # 主循环会按 config 里用户填的 chapter_id 走,这里只保证 json 存在
-                only_chapter = {
-                    "chapterUid": "",
-                    "chapterIdx": N,
-                    "title": "",
+                payload = {
+                    "bookId": book_id,
+                    "chapters": [only_chapter],
+                    "chapters_total": N,
+                    "first_chapter_uid": first_uid,
+                    "first_chapter_idx": N,
+                    "heartbeat_context": first_info.get("heartbeat_context", {}),
+                    "fetched_at": _dt.now().isoformat(),
+                    "user_set": user_total is not None,
                 }
-
-            payload = {
-                "bookId": book_id,
-                "chapters": [only_chapter],
-                "chapters_total": N,
-                "first_chapter_uid": first_uid,
-                "first_chapter_idx": N,
-                "user_set": user_total is not None,
-                "fetched_at": _dt.now().isoformat(),
-                "auto_generated": True,
-                "created_by": "ensure_chapter_json_fast",
-            }
-            if _udm.save_chapters(self.user_name, book_id, payload):
-                if first_uid:
+                if _udm.save_chapters(self.user_name, book_id, payload):
+                    hb_sm = payload["heartbeat_context"].get("sm", "")
                     logger.info(
-                        f"[chapters] 补齐: {book_id[:12]} N={N} uid={first_uid[:16]}"
+                        f"[chapters] fast-fetch 成功: {book_id[:12]} "
+                        f"N={N} uid={first_uid[:16]} sm={hb_sm[:30]!r}"
                     )
-                else:
-                    logger.warning(
-                        f"[chapters] 补齐但未拿到真 uid: {book_id[:12]} N={N} "
-                        f"(浏览器未登录或书未上架)"
-                    )
-            # 写回内存缓存,免得主循环再懒加载
-            self._book_chapter_cache[book_id] = {
-                "chapters": [only_chapter],
-                "first_chapter_uid": first_uid,
-                "first_chapter_idx": N,
-            }
+                    self._book_chapter_cache[book_id] = payload
+                return
+
+            # 4) fast-fetch 失败 → 不写占位缓存
+            logger.warning(
+                f"[chapters] 补齐失败(fast-fetch 未拿到真章节): {book_id[:12]} "
+                f"本次会话该书将无法阅读,需扫码登录或检查浏览器"
+            )
         except Exception as e:
             logger.debug(f"[chapters] 补齐失败(非致命, {book_id[:12]}): {e}")
 
     async def _ensure_all_chapters_jsons(self) -> None:
         """
-        2026-06-12: 每次阅读开始时,扫 config 里所有书,缺 json 就用 Playwright 抓
-        (用户反馈:之前会有书漏掉没有写入,且要求走真实浏览器心跳,不是占位)
+        每次阅读开始时,扫 config 里所有书,用统一校验方法确保每本书的磁盘缓存完整。
+        2026-06-26 重构:不再只看"chapters 数组非空"就跳过,必须 _is_chapter_cache_payload_valid()
+        校验完整(chapters_total + first_chapter_uid + heartbeat_context.sm)。
+        不完整的缓存视为脏数据 → 触发 _ensure_chapter_for_book 走 fetch 重建。
 
         注意:
           - 串行 await,避免 Playwright 浏览器并发抓取互相干扰
@@ -460,20 +509,39 @@ class ApiReader:
                 bid = (b.get("book_id") or "").strip() if isinstance(b, dict) else ""
                 if not bid:
                     continue
+                # 1) 内存缓存完整 → 跳过
                 if bid in self._book_chapter_cache:
-                    continue
+                    if _is_chapter_cache_payload_valid(self._book_chapter_cache[bid]):
+                        continue
+                    # 不完整 → 清掉
+                    self._book_chapter_cache.pop(bid, None)
+                # 2) 磁盘缓存完整 → 加载到内存,跳过
                 disk = _udm.load_chapters(self.user_name, bid)
-                if disk and isinstance(disk, dict) and disk.get("chapters"):
+                if disk and _is_chapter_cache_payload_valid(disk):
+                    logger.info(
+                        f"[chapters] 启动扫:磁盘缓存完整,加载 {bid[:12]} "
+                        f"({len(disk.get('chapters', []))}章, hb_ctx=有)"
+                    )
+                    self._book_chapter_cache[bid] = disk
                     continue
+                # 3) 不完整 / 不存在 → 加入待 fetch 列表
+                if disk:
+                    logger.warning(
+                        f"[chapters] 启动扫:{bid[:12]} 磁盘缓存不完整,加入 fetch 列表"
+                    )
+                    try:
+                        _udm.delete_chapters(self.user_name, bid)
+                    except Exception:
+                        pass
                 need_fetch.append(bid)
             if not need_fetch:
                 logger.info(
-                    f"[chapters] 启动扫 {len(books_cfg)} 本,全部已有 json"
+                    f"[chapters] 启动扫 {len(books_cfg)} 本,全部已有完整缓存"
                 )
                 return
             logger.info(
-                f"[chapters] 启动扫 {len(books_cfg)} 本,缺 {len(need_fetch)} 本 → "
-                f"用 Playwright 顺序补抓(只抓首章真 uid)"
+                f"[chapters] 启动扫 {len(books_cfg)} 本,缺/不完整 {len(need_fetch)} 本 → "
+                f"用 fast-fetch 拿首章 + heartbeat_context(避免长时间占用浏览器)"
             )
             import asyncio as _asyncio
             for i, bid in enumerate(need_fetch):
@@ -1265,16 +1333,22 @@ class ApiReader:
 
         if not raw_chapters:  # 合并:既支持原本空,又支持"被防御清空"
             # chapters 为空 —— 按以下顺序获取章节信息:
-            # 1) 内存缓存 _book_chapter_cache
+            # 1) 内存缓存 _book_chapter_cache(必须 _is_chapter_cache_payload_valid 通过)
             # 2) captured_payload(仅当 captured 时刚好在这本书上)
             # 3) reading_progress.json(仅当进度文件记录的就是这本书)
             # 4) 浏览器懒加载 fetch_chapter_info(调 i.weread.qq.com/book/chapterInfos)
             cached = self._book_chapter_cache.get(book_id)
-            if cached:
+            if cached and _is_chapter_cache_payload_valid(cached):
                 chapter_id = cached.get("first_chapter_uid", "")
                 chapter_index = cached.get("first_chapter_idx", 0)
-                logger.debug(f"chapters 为空,使用内存缓存章节: {book_id[:12]} c={chapter_id[:16]}")
+                logger.debug(f"chapters 为空,使用内存缓存章节(完整): {book_id[:12]} c={chapter_id[:16]}")
             else:
+                # 缓存缺失或不完整 → 走 fetch 路径(会自动重建)
+                if cached:
+                    logger.warning(
+                        f"[chapters] 内存缓存不完整,走 fetch: {book_id[:12]}"
+                    )
+                    self._book_chapter_cache.pop(book_id, None)
                 ui = self.credentials.user_info or {} if self.credentials else {}
                 cp = ui.get("captured_payload", {}) or {}
                 captured_c = cp.get("c", "")
@@ -1316,6 +1390,10 @@ class ApiReader:
     async def _ensure_chapter_for_book(self, book_id: str) -> Optional[Dict[str, Any]]:
         """懒加载:二级缓存 + Playwright 拿章节列表(完全对齐 funnyzak 风格)。
 
+        2026-06-26 重构:
+          用 _is_chapter_cache_payload_valid() 统一校验,缺 heartbeat_context 就 refetch
+          (之前分散的 _refetched_for_hb_ctx 逻辑整合到统一校验里)
+
         查找顺序:
           1) 内存缓存 self._book_chapter_cache(本次会话有效)
           2) 磁盘缓存 shared/credentials/{user}/chapters/{bookId}.json(跨会话)
@@ -1331,89 +1409,73 @@ class ApiReader:
         设计原则:只依赖 /web/book/read(腾讯阅读心跳,不会改版),不调任何
         chapterInfos / outline / bookmarklist 端点(都可能因微信读书改版失效)。
         """
-        # 1) 内存缓存
+        # 1) 内存缓存完整 → 直接返回
         if book_id in self._book_chapter_cache:
-            return self._book_chapter_cache[book_id]
+            if _is_chapter_cache_payload_valid(self._book_chapter_cache[book_id]):
+                return self._book_chapter_cache[book_id]
+            # 内存里有但不完整(理论上不应该发生,防御性清掉)
+            logger.debug(
+                f"[chapters] 内存缓存不完整,清掉: {book_id[:12]}"
+            )
+            self._book_chapter_cache.pop(book_id, None)
 
         # 已知失败过 → 不要再试
         if book_id in getattr(self, "_lazy_load_failed", set()):
             return None
 
-        # 2) 磁盘缓存(按用户分目录) — 这是新方案的核心
+        # 2) 磁盘缓存(按用户分目录)
         try:
             from src.user_data_manager import user_data_manager
             disk_cached = user_data_manager.load_chapters(self.user_name, book_id)
             if disk_cached:
-                chapters = disk_cached.get("chapters", [])
-                if chapters:
-                    # 关键校验:磁盘缓存里的 chapterUid 是否可用
-                    # 之前规则"必须 >= 6 字符且非纯数字"是错的:
-                    #   微信读书某些书(多册合集)的 outline itemId 就是纯数字 UID
-                    #   (英国通史 outline 真返回 c=2,这种就是合法的真 chapterUid)
-                    # 新规则:只要 first_chapter_uid 存在 + chapters 非空,就接受
-                    first_uid = disk_cached.get("first_chapter_uid", "") or ""
-                    is_polluted = not first_uid
-                    if is_polluted:
-                        logger.warning(
-                            f"磁盘章节缓存 first_chapter_uid 为空,删除并重新 fetch..."
-                        )
-                        try:
-                            user_data_manager.delete_chapters(self.user_name, book_id)
-                        except Exception as _e:
-                            logger.debug(f"删磁盘脏数据失败(非致命): {_e}")
-                    else:
-                        logger.info(
-                            f"📦 命中磁盘章节缓存: {book_id[:12]} ({len(chapters)}章, "
-                            f"fetched_at={disk_cached.get('fetched_at', '?')})"
-                        )
-                        # 2026-06-23: heartbeat_context 从磁盘也加载进来 — 跨书时
-                        # sm/co/pr 跟 b/c 必须配套,否则腾讯静默拒收
-                        hb_ctx_disk = disk_cached.get("heartbeat_context") or {}
-                        # 2026-06-23: 旧缓存(2026-06-23 之前抓的)没有 heartbeat_context
-                        # 字段,需要 refetch 一次升级。一次性成本,后续会话秒开
-                        if not hb_ctx_disk and book_id not in getattr(self, "_refetched_for_hb_ctx", set()):
-                            if not hasattr(self, "_refetched_for_hb_ctx"):
-                                self._refetched_for_hb_ctx = set()
-                            self._refetched_for_hb_ctx.add(book_id)
-                            logger.info(
-                                f"♻️ 旧缓存缺 heartbeat_context,refetch 升级: {book_id[:12]}"
-                            )
-                            # 删磁盘缓存 → 下面的 Playwright 路径会重新抓
-                            try:
-                                user_data_manager.delete_chapters(self.user_name, book_id)
-                            except Exception as _e:
-                                logger.debug(f"删旧缓存失败(非致命): {_e}")
-                            # 落下去走 Playwright 路径,这里不 return
-                        else:
-                            self._book_chapter_cache[book_id] = {
-                                "chapters": chapters,
-                                "first_chapter_uid": first_uid,
-                                "first_chapter_idx": disk_cached.get("first_chapter_idx", 0),
-                                "heartbeat_context": hb_ctx_disk,
-                            }
-                            return self._book_chapter_cache[book_id]
+                if _is_chapter_cache_payload_valid(disk_cached):
+                    # 缓存完整(有 chapters_total + first_uid + heartbeat_context.sm)
+                    chapters = disk_cached.get("chapters", [])
+                    logger.info(
+                        f"📦 命中磁盘章节缓存(完整): {book_id[:12]} "
+                        f"({len(chapters)}章, hb_ctx=有, "
+                        f"fetched_at={disk_cached.get('fetched_at', '?')})"
+                    )
+                    self._book_chapter_cache[book_id] = disk_cached
+                    return self._book_chapter_cache[book_id]
+                # 缓存不完整 → 删了重 fetch
+                logger.warning(
+                    f"♻️ 磁盘章节缓存不完整(缺 hb_ctx 等),删除并重新 fetch: "
+                    f"{book_id[:12]}"
+                )
+                try:
+                    user_data_manager.delete_chapters(self.user_name, book_id)
+                except Exception as _e:
+                    logger.debug(f"删磁盘脏数据失败(非致命): {_e}")
         except Exception as e:
             logger.debug(f"磁盘章节缓存查询失败(非致命): {e}")
 
         # 3) Playwright 截获(主方案,反爬抗性强,只依赖 /web/book/read)
         info = await self._fetch_chapter_via_playwright(book_id)
-        if info:
+        if info and _is_chapter_cache_payload_valid(info):
             self._book_chapter_cache[book_id] = info
             # 持久化到磁盘
             try:
                 from src.user_data_manager import user_data_manager
                 user_data_manager.save_chapters(self.user_name, book_id, info)
+                logger.info(
+                    f"📦 fetch 成功,磁盘缓存已保存: {book_id[:12]} "
+                    f"({len(info.get('chapters', []))}章, hb_ctx=有)"
+                )
             except Exception as e:
                 logger.debug(f"保存磁盘章节缓存失败(非致命): {e}")
             # 兼容旧路径写回 config.yaml
             try:
-                self._persist_chapter_to_config(book_id, info["chapters"])
+                self._persist_chapter_to_config(book_id, info.get("chapters", []))
             except Exception as e:
                 logger.debug(f"持久化章节到 config.yaml 失败(非致命): {e}")
             return self._book_chapter_cache[book_id]
 
-        # 不再有 httpx i.weread.qq.com 兜底(4 路删到 1 路)
-        # Playwright 也失败 → 标记失败并返回 None,避免 retry 循环无限重试同一本
+        # fetch 失败或返回的数据不完整 → 不写占位缓存(避免后续误用)
+        if info and not _is_chapter_cache_payload_valid(info):
+            logger.warning(
+                f"[chapters] fetch 返回数据不完整(缺 hb_ctx): {book_id[:12]}"
+            )
         self._lazy_load_failed.add(book_id)
         logger.warning(
             f"懒加载章节最终失败: {book_id[:12]} "
