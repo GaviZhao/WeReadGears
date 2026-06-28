@@ -345,9 +345,17 @@ class ApiReader:
 
         对齐 upstream funnyzak/weread-bot:在 startup 时校验 ps/pc/appId 不是
         placeholder("app_id" 或空字符串),避免带着垃圾值跑 20 次空响应
+
+        2026-06-28: 优先用 _last_refreshed_payload(每次切书从浏览器实时抓的,
+        比 captured_payload 新鲜,sm/co/pr/ps/pc/appId 同源同截获),
+        fallback 到 captured_payload。
         """
-        ui = self.credentials.user_info or {}
-        cp = ui.get("captured_payload", {}) or {}
+        cp = None
+        if getattr(self, "_last_refreshed_payload", None):
+            cp = self._last_refreshed_payload
+        if not cp:
+            ui = self.credentials.user_info or {}
+            cp = ui.get("captured_payload", {}) or {}
         if cp.get("ps"):
             self.data["ps"] = cp["ps"]
         if cp.get("pc"):
@@ -1378,12 +1386,31 @@ class ApiReader:
                         )
                         return "", "", None, book_name, ""
 
-        # 章节索引兜底:chapters 为空时,使用每本书独立的 ci 计数器
+# 章节索引兜底:chapters 为空时,使用每本书独立的 ci 计数器
         if chapter_index is None and chapter_id:
             base_ci = self._book_ci_counters.get(book_id, 0)
             chapter_index = base_ci
             self.last_chapter_index = chapter_index
             logger.debug(f"章节索引 ci={chapter_index} (book={book_id[:12]})")
+
+        # 2026-06-28: refresh hb_ctx — 翻到中间章节抓取 sm/co/pr,覆盖 c
+        # 每次选书/切书都重抓(切书慢 5-10s,可接受;像真实用户切到新书后从前面开始读)
+        # 这样 hb_ctx 跟 c 严格一致,服务端不会识别为"首章复读"导致 synckey 缺失
+        # fail-open:refresh 失败时保留原 c + 旧 hb_ctx,主流程继续
+        if book_id and chapter_id:
+            refreshed = await self._refresh_hb_ctx(book_id, hb_ctx_at_idx=3)
+            if refreshed:
+                chapter_id = refreshed["first_chapter_uid"]
+                chapter_index = int(refreshed.get("first_chapter_idx") or 0)
+                logger.debug(
+                    f"[select] refresh hb_ctx 后用新 c: {book_id[:12]} "
+                    f"c={chapter_id[:16]} ci={chapter_index}"
+                )
+            else:
+                logger.debug(
+                    f"[select] refresh hb_ctx 失败,沿用旧 c: {book_id[:12]} "
+                    f"c={chapter_id[:16]}"
+                )
 
         return book_id, chapter_id, chapter_index, book_name, chapter_name
 
@@ -1519,6 +1546,121 @@ class ApiReader:
             f"[chapters] 重抓失败: {book_id[:12]} 浏览器仍拿不到真 c(可能该书无权/未上架)"
         )
         return False
+
+    async def _refresh_hb_ctx(self, book_id: str, hb_ctx_at_idx: int = 3) -> Optional[Dict[str, Any]]:
+        """【2026-06-28 新增】重抓 hb_ctx(从中间章节),并把 picked_payload **全量替换** self.data。
+
+        背景:
+          - 6月26日 18:56 之后,服务端对"持续在首章复读"的心跳不再返 synckey
+            (返 succ=1 但时长不入账,客户端应用层识别不出 → wastage 整本)。
+          - 根因:hb_ctx.sm/co 是首章内容,跟"用户应该读到的中间位置"不符,服务端风控识别。
+          - 修法:hb_ctx 取自中间章节(像真实用户读到中间 ~3-5 章),
+            每次切书前/启动前都重新抓。
+
+        关键设计(用户提醒):
+          - 必须**全量替换 picked_payload 的所有字段到 self.data**,
+            不能只改 sm/co/pr/ps/pc/appId/c/ci 中的几个。
+          - picked_payload 是浏览器真实截获的完整 curl body 字段,
+            腾讯服务端把这些字段当作同源会话包,
+            任何一个字段用旧值(其他用新值)都会判为异常,静默拒收。
+          - self.data 里的 ct/ts/rn/sg/s 由 _prepare_payload 每轮重算,不要覆盖。
+          - 设 self._last_refreshed_payload 供 _apply_user_identity 优先读 ps/pc/appId
+            (比 captured_payload 新鲜)。
+
+        调用时机:
+          - _select_book_and_chapter 选书后(无论初始/切书)
+          - _ensure_all_chapters_jsons 启动前为每本书预热
+
+        失败:返回 None,不抛异常(非致命,主流程继续用旧 hb_ctx)
+        """
+        if not book_id:
+            return None
+        try:
+            from src.browser import browser_manager
+            if not browser_manager or not getattr(browser_manager, "page", None):
+                logger.debug(
+                    f"[hb_ctx] 浏览器未启动,跳过 refresh: {book_id[:12]}"
+                )
+                return None
+            logger.info(
+                f"[hb_ctx] refresh hb_ctx: {book_id[:12]} "
+                f"翻到第 {hb_ctx_at_idx} 章截获心跳"
+            )
+            info = await browser_manager.fetch_chapter_info_via_page(
+                book_id,
+                user_name=self.user_name,
+                hb_ctx_only=True,
+                hb_ctx_at_idx=hb_ctx_at_idx,
+            )
+            if not info or not info.get("first_chapter_uid"):
+                logger.warning(f"[hb_ctx] refresh 失败(无 first_chapter_uid): {book_id[:12]}")
+                return None
+            hb_ctx = info.get("heartbeat_context") or {}
+            picked_payload = info.get("picked_payload") or {}
+            if not hb_ctx.get("sm"):
+                logger.warning(f"[hb_ctx] refresh 失败(无 sm): {book_id[:12]}")
+                return None
+
+            picked_cid = info["first_chapter_uid"]
+            picked_ci = int(info.get("first_chapter_idx") or 0)
+
+            # === 全量替换 self.data(关键)===
+            # picked_payload 包含 {b/c/ci/co/sm/pr/ps/pc/appId} 9 个字段,
+            # 必须一次性 update,不能用 b=... c=... 一个个写
+            # (旧 captured 的 ps/pc 可能跟新截获的 sm 不是同源会话包)
+            if picked_payload:
+                # 备份 _prepare_payload 每轮重算的字段(ct/ts/rn/sg/s),不被 picked 覆盖
+                _preserve_keys = ("ct", "ts", "rn", "sg", "s", "rt")
+                preserved = {k: self.data.get(k) for k in _preserve_keys if k in self.data}
+                # 记录 picked 没覆盖但 self.data 已有的一些"无关但当前值"的字段,
+                # 避免 update 把它们清空。update 是覆盖式,只动 picked 里有的字段。
+                self.data.update(picked_payload)
+                # 恢复每轮重算字段
+                for k, v in preserved.items():
+                    if v is not None:
+                        self.data[k] = v
+                # pop s 让 _prepare_payload 重算(虽然 preserved 里有,但保险起见)
+                self.data.pop("s", None)
+                logger.debug(
+                    f"[hb_ctx] self.data 全量替换 picked_payload 完成: "
+                    f"keys={list(picked_payload.keys())}"
+                )
+            # 标记 _last_refreshed_payload,供 _apply_user_identity 优先读 ps/pc/appId
+            self._last_refreshed_payload = picked_payload
+
+            # === 更新内存缓存(供 _select_book_and_chapter 等用)===
+            # 注意:不写磁盘缓存,hb_ctx 应该是即时数据(下次启动再重抓)
+            if book_id not in self._book_chapter_cache:
+                self._book_chapter_cache[book_id] = {
+                    "bookId": book_id,
+                    "chapters": [],
+                    "chapters_total": 0,
+                    "first_chapter_uid": "",
+                    "first_chapter_idx": 0,
+                }
+            cached = self._book_chapter_cache[book_id]
+            cached["first_chapter_uid"] = picked_cid
+            cached["first_chapter_idx"] = picked_ci
+            cached["heartbeat_context"] = hb_ctx
+            # 替换 chapters 列表为单条 picked 占位(对齐单条 chapterIdx=N 格式)
+            cached["chapters"] = [{
+                "chapterUid": picked_cid,
+                "chapterIdx": picked_ci,
+                "title": cached.get("chapters", [{}])[0].get("title", "") if cached.get("chapters") else "",
+            }]
+            # 同步 ci 计数器的初值(让 _advance_chapter_index 从 picked_ci 开始递增)
+            if not hasattr(self, "_book_ci_counters"):
+                self._book_ci_counters = {}
+            self._book_ci_counters[book_id] = picked_ci
+
+            logger.info(
+                f"[hb_ctx] refresh 成功: {book_id[:12]} c={picked_cid[:16]} "
+                f"idx={picked_ci} sm={str(hb_ctx.get('sm', ''))[:30]!r}"
+            )
+            return info
+        except Exception as e:
+            logger.warning(f"[hb_ctx] refresh 异常(非致命): {e}")
+            return None
 
     async def _fetch_chapter_via_playwright(self, book_id: str) -> Optional[Dict[str, Any]]:
         """【主方案】调 browser_manager.fetch_chapter_info_via_page 拿章节。"""

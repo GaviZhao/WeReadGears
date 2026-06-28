@@ -1814,6 +1814,8 @@ class BrowserManager:
         book_id: str,
         user_name: str = "default",
         fetch_only_first: bool = False,
+        hb_ctx_at_idx: int = 3,
+        hb_ctx_only: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """【新方案 - 完全对齐 funnyzak/weread-bot】模拟浏览器访问书籍章节页,
         通过截获腾讯的"阅读心跳" /web/book/read 的 curl,
@@ -1824,6 +1826,17 @@ class BrowserManager:
             (用户洞察:微信读书所有其他章节字符串不变,只有 idx 变,
              不需要真抓所有 200 章,1-3 分钟/本 → 几秒/本)
           - False → 走原翻页累积逻辑(慢但拿全)
+
+        2026-06-28 新增 hb_ctx_only + hb_ctx_at_idx:
+          - 背景:6月26日 18:56 之后,服务端对"持续在首章复读"的心跳不再返 synckey
+            (返 succ=1 但时长不入账,客户端应用层识别不出)。
+            根因:hb_ctx.sm/co 是首章内容,跟用户实际阅读位置不符,服务端风控识别。
+          - hb_ctx_only=True → 翻到第 hb_ctx_at_idx 章(默认 3)就停,
+            取该章心跳的 sm/co/pr 作为 hb_ctx 返回(像真实用户读到中间)。
+            ~5-10s/本,适合每次切书前/启动前调用。
+          - hb_ctx_only=False → 原行为(完整翻页累积,首章 hb_ctx)
+          - hb_ctx_at_idx=3 → hb_ctx 取第 3 章(像真实用户从开头往后读了几页)
+            范围 1-10,默认 3(用户实测 3-5 章效果最好)
 
         模型对齐:
           @dataclass class ChapterInfo:
@@ -1984,6 +1997,93 @@ class BrowserManager:
                     "first_chapter_idx": first.get("chapterIdx", 0),
                     "fetch_only_first": True,
                     "heartbeat_context": hb_ctx,
+                }
+
+            # 2026-06-28: hb_ctx_only=True → 翻到第 N 章就停,取该章 hb_ctx(中间章节策略)
+            # 背景:服务端对"持续在首章复读"的心跳不再返 synckey(succ=1 但时长不入账)
+            # 修法:hb_ctx 取自中间章节,像真实用户从开头读了几页,
+            # 每次切书前/启动前都重新抓,确保 sm/co/pr 是最新的真实阅读位置
+            if hb_ctx_only:
+                target_idx = max(1, int(hb_ctx_at_idx))
+                logger.info(
+                    f"🌐 hb_ctx_only 模式: {book_id[:12]} 目标 hb_ctx 来自第 {target_idx} 章,"
+                    f"开始翻页累积"
+                )
+                # 翻页累积直到 captured_chapters 数 >= target_idx
+                MAX_HOPS = max(target_idx + 3, 6)  # 预留几次空翻冗余
+                no_progress_count = 0
+                last_seen_cid = None
+                while (
+                    len(captured_chapters) < target_idx
+                    and no_progress_count < 3
+                    and len(captured_chapters) < MAX_HOPS
+                ):
+                    latest_cid = list(captured_chapters.keys())[-1]
+                    if latest_cid == last_seen_cid:
+                        no_progress_count += 1
+                    else:
+                        no_progress_count = 0
+                        last_seen_cid = latest_cid
+                    try:
+                        vp = page.viewport_size or {"width": 1280, "height": 800}
+                        await page.mouse.click(
+                            vp["width"] * 0.85, vp["height"] * 0.5
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        await page.keyboard.press("ArrowRight")
+                    except Exception:
+                        pass
+                    await page.wait_for_timeout(2500)
+                if len(captured_chapters) < target_idx:
+                    logger.warning(
+                        f"hb_ctx_only: {book_id[:12]} 翻页累积只拿到 "
+                        f"{len(captured_chapters)} 章(目标 {target_idx}),"
+                        f"用现有累积取 hb_ctx"
+                    )
+                # 取第 N 个截获的心跳(用截获顺序,captured_payloads 列表的下标)
+                pick_idx = min(target_idx - 1, len(captured_payloads) - 1)
+                pick_idx = max(0, pick_idx)
+                picked_payload = captured_payloads[pick_idx] if captured_payloads else {}
+                picked_cid = picked_payload.get("c", "") if picked_payload else ""
+                picked_ci = picked_payload.get("ci", 0) if picked_payload else 0
+                logger.info(
+                    f"🌐 hb_ctx_only 完成: {book_id[:12]} 累积 {len(captured_chapters)} 章,"
+                    f"取第 {pick_idx+1} 个心跳 c={picked_cid[:16] if picked_cid else 'N/A'} ci={picked_ci}"
+                )
+                # 构造 hb_ctx(标 chapter_idx 表示来自哪一章)
+                hb_ctx = {}
+                for k in ("sm", "co", "pr", "ci"):
+                    if picked_payload and k in picked_payload and picked_payload[k] != "":
+                        hb_ctx[k] = picked_payload[k]
+                hb_ctx["chapter_idx"] = picked_ci
+                # 用 picked 的章节作为 chapters 单条占位(对齐单条 chapterIdx=N 格式)
+                if picked_cid:
+                    only_chapter = {
+                        "chapterUid": picked_cid,
+                        "chapterIdx": picked_ci,
+                        "title": "",
+                    }
+                else:
+                    # 兜底:用首章
+                    first = list(captured_chapters.values())[0]
+                    only_chapter = first
+                    picked_cid = first["chapterUid"]
+                    picked_ci = first.get("chapterIdx", 0)
+                return {
+                    "bookId": book_id,
+                    "chapters": [only_chapter],
+                    "first_chapter_uid": picked_cid,
+                    "first_chapter_idx": picked_ci,
+                    "hb_ctx_only": True,
+                    "hb_ctx_chapter_idx": picked_ci,
+                    "heartbeat_context": hb_ctx,
+                    # 2026-06-28: picked_payload 是浏览器真实截获的完整 curl body
+                    # (c/ci/b/ps/pc/appId/sm/co/pr),调用方应该**全量 update 到 self.data**
+                    # 而不是只改 hb_ctx —— sm/co 跟 ps/pc/appId 必须同源(同一次截获),
+                    # 否则腾讯服务端会判定异常,静默拒收
+                    "picked_payload": picked_payload,
                 }
 
             # ③ 模拟翻页累积 chapters
